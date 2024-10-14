@@ -1,7 +1,8 @@
 from ipyleaflet import Map, Heatmap, LegendControl
 from ipyleaflet.velocity import Velocity
+from ipywidgets import Layout
 from shiny.express import ui, input
-from shinywidgets import render_widget
+from shinywidgets import render_widget, output_widget
 from shiny import reactive
 import pickle
 import numpy as np
@@ -9,6 +10,14 @@ import itertools
 import numpy as np
 from scipy.interpolate import griddata
 import xarray as xr
+from branca.colormap import linear
+
+# Beispiel-Windgeschwindigkeitsspanne (min und max Windgeschwindigkeit in m/s)
+min_wind_speed = 0
+max_wind_speed = 30
+
+# Erstelle eine Colormap, die zwischen min_wind_speed und max_wind_speed skaliert
+colormap = linear.Paired_06.scale(min_wind_speed, max_wind_speed)
 
 # Datei laden und als xarray-Dataset öffnen
 file_path = "data_europe.grib2"
@@ -87,30 +96,49 @@ def remove_all_layers(m):
     for i in range(1, len(m.layers)):
         m.remove_layer(m.layers[1])
         
-ui.h2("An ipyleaflet Map"),
+ui.h2("An ipyleaflet Map", style="display:none;"),  # Entferne oder verstecke die Überschrift, wenn nicht notwendig
 
-ui.input_slider("time_step", "Time Step (hours)", min=initial_step, max=final_step, step=step_size, value=initial_step)
-
-def add_legend(m):
-    legend_items = {
-        "0-2 m/s": "#00ff00",
-        "2-4 m/s": "#ffff00",
-        "4-6 m/s": "#ff8000",
-        "6+ m/s": "#ff0000",
+# Verwende CSS, um die Karte auf volle Bildschirmgröße zu setzen
+ui.tags.style("""
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
     }
+"""),
 
-    # Erstelle den LegendControl
-    legend = LegendControl(legend=legend_items, position="bottomleft")
-    m.add_control(legend)
+# Slider für die Zeitschritte (auf der Karte überlagert)
+ui.tags.div(
+    ui.input_slider("time_step", "Time Step (hours)", min=initial_step, max=final_step, step=step_size, value=initial_step),
+    style="position: absolute; top: 20px; left: 20px; background-color: white; padding: 10px; z-index: 1000;"
+)
+
+from ipyleaflet import LegendControl
+
+def create_legend_dict(colormap, steps=10):
+    """Erstellt ein Legenden-Dictionary aus einer kontinuierlichen Colormap."""
+    step_values = np.linspace(min_wind_speed, max_wind_speed, steps)
+    legend_dict = {f"{round(v, 2)} m/s": colormap(v) for v in step_values}
+    return legend_dict
+
+def add_continuous_legend(m, colormap):
+    # Erstelle die Legende als Dictionary mit diskreten Schritten
+    legend_dict = create_legend_dict(colormap, steps=10)
+    legend_control = LegendControl(legend=legend_dict, position="bottomright")
+    m.add_control(legend_control)
+
+
 
 @render_widget  # server logic is embedded directly using reactive.effect and render_widget decorators, no ui necessary to display element for map
 def map():
     m = Map(center=[(lat_min + lat_max) / 2, (lon_min + lon_max) / 2],
             zoom=3,
             tiles=f'https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{{z}}/{{x}}/{{y}}?access_token=pk.eyJ1IjoiZWwtZ2lmIiwiYSI6ImNtMXQyYWdsYzAwMGUycXFzdmY2eDFnaWMifQ.yirQoMK5TCdmZZUFUNXxwA',
-            attr='Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="https://www.mapbox.com/">Mapbox</a>'
+            attr='Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="https://www.mapbox.com/">Mapbox</a>',
+            layout=Layout(width='100%', height='100vh')
         )
-    add_legend(m)
     return m
 
 
@@ -129,14 +157,20 @@ def add_layer():
     # Entpacke die Koordinaten in separate Listen
     latitudes, longitudes = zip(*grid_points)
 
-    # Kombiniere die Punkte in ein Format, das die Heatmap verwenden kann
-    heatmap_data = list(zip(latitudes, longitudes, total_selection_interpol[step_index].flatten()))
+    # Wende die Colormap auf die Windgeschwindigkeitswerte an (Farben)
+    heatmap_data = []
+    for lat, lon, wind_speed in zip(latitudes, longitudes, total_selection_interpol[step_index].flatten()):
+        # Füge die Position und die Windgeschwindigkeit (Farbe) zur Heatmap hinzu
+        heatmap_data.append((lat, lon, wind_speed))  # Heatmap arbeitet mit (lat, lon, intensity)
 
     # Heatmap erstellen
-    heatmap = Heatmap(locations=heatmap_data, radius=10, blur=30, max_zoom=10)
+    heatmap = Heatmap(locations=heatmap_data, radius=5, blur=5, max_zoom=10)
 
     # Füge die Heatmap zur Karte hinzu
     m.add_layer(heatmap)
+
+    # Füge die kontinuierliche Legende hinzu
+    add_continuous_legend(m, colormap)
 
     display_options = {
         'velocityType': 'European Wind',
@@ -162,6 +196,7 @@ def add_layer():
 
 
     m.add_layer(wind_layer)  # Add wind velocity layer to the map
+
 
 
 
