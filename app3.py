@@ -104,8 +104,8 @@ def server(input, output, session):
     @output
     @render_widget
     def map():
-        
-        # Basemap-Dropdown-Optionen
+
+        # Basemap-Dropdown-Optionen, https://ipyleaflet.readthedocs.io/en/latest/map_and_basemaps/basemaps.html
         basemaps_dict = {
             "OpenStreetMap": basemaps.OpenStreetMap.Mapnik,
             "OpenTopoMap": basemaps.OpenTopoMap,
@@ -154,9 +154,8 @@ def server(input, output, session):
 
         # Funktion zur Aktualisierung der Karte basierend auf dem Slider
         def update_map(change):
-
             for i in range(len(m.layers) - 1, -1, -1): # rückwärts iterieren, da Elemente gelöscht werden
-                if isinstance(m.layers[i], (Heatmap, Velocity)):
+                if isinstance(m.layers[i], LayerGroup):
                     m.remove_layer(m.layers[i])
             
             time_step = slider.value
@@ -192,7 +191,7 @@ def server(input, output, session):
         
         # Verbinde den Slider mit der Update-Funktion, observe function by ipywidgets instead of reactive by shiny
         slider.observe(update_map, names='value')
-            
+
         global initial
         # Initialisiere die Karte mit dem ersten Zeitschritt
         if initial == 0:
@@ -234,4 +233,4 @@ app = App(app_ui, server)
 
 
 
-# to run: shiny run app2.py
+# to run: shiny run app3.py
