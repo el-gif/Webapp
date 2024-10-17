@@ -1,12 +1,18 @@
 from shiny import App, ui
 from ipywidgets import SelectionSlider, Layout, Play, VBox, jslink, Dropdown, HTML
 from shinywidgets import render_widget, output_widget
-from ipyleaflet import Map, Heatmap, WidgetControl, ColormapControl, LayersControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl
+from ipyleaflet import Map, Heatmap, WidgetControl, ColormapControl, LayersControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay
 from ipyleaflet.velocity import Velocity
 import numpy as np
 import itertools
 from branca.colormap import linear
 import xarray as xr
+from PIL import Image
+import io
+from base64 import b64encode
+import rasterio
+from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.transform import from_bounds
 
 # Datei laden und als xarray-Dataset öffnen
 file_path = "data_europe.grib2"
@@ -83,6 +89,8 @@ for i in range(len(u_selection_interpol)):
     max_wind_speed = total_selection_interpol[i].max() if total_selection_interpol[i].max() > max_wind_speed else max_wind_speed
     min_wind_speed = total_selection_interpol[i].min() if total_selection_interpol[i].min() < min_wind_speed else min_wind_speed
 
+colormap = linear.viridis.scale(round(min_wind_speed), round(max_wind_speed))
+
 # Advance preparation of HeatMap
 grid_points = list(itertools.product(lats_selection, lons_selection))
 latitudes, longitudes = zip(*grid_points)
@@ -154,9 +162,9 @@ def server(input, output, session):
 
         # Funktion zur Aktualisierung der Karte basierend auf dem Slider
         def update_map(change):
-            for i in range(len(m.layers) - 1, -1, -1): # rückwärts iterieren, da Elemente gelöscht werden
-                if isinstance(m.layers[i], LayerGroup):
-                    m.remove_layer(m.layers[i])
+            for layer in m.layers:
+                if isinstance(layer, LayerGroup):
+                    m.remove_layer(layer)
             
             time_step = slider.value
             step_index = int((time_step - start_time) / step_size)
@@ -183,11 +191,77 @@ def server(input, output, session):
                 }
             )
 
+            height = len(total_selection_interpol[step_index])
+            width = len(total_selection_interpol[step_index][0])
+
+            rgba_image = np.zeros((height, width, 4), dtype=np.uint8)
+            for i in range(height):
+                for j in range(width):
+                    hex_color = colormap(total_selection_interpol[step_index][i][j])  # Get hex color from colormap
+
+                    # Convert hex color to RGBA
+                    r = int(hex_color[1:3], 16)
+                    g = int(hex_color[3:5], 16)
+                    b = int(hex_color[5:7], 16)
+                    a = 255  # Full opacity
+
+                    rgba_image[i, j] = (r, g, b, a)
+
+            # Convert the RGBA array to an image
+            img = Image.fromarray(rgba_image, 'RGBA')          
+
+            # Annahme: img ist dein bereits generiertes Bild aus dem RGBA-Array
+            img_array = np.array(img)
+
+            # Definiere die Parameter
+            src_crs = 'EPSG:4326'
+            dst_crs = 'EPSG:3857'
+
+            # Berechne die Transformationsparameter für EPSG:4326 -> EPSG:3857
+            src_transform = from_bounds(lon_min, lat_min, lon_max, lat_max, width, height)
+            dst_transform, width, height = calculate_default_transform(src_crs, dst_crs, width, height, lon_min, lat_min, lon_max, lat_max)
+
+            # Ziel-Array für die Reprojektion erstellen
+            destination = np.zeros((4, height, width), dtype=np.uint8)
+
+            # Reprojektion des Bildes durchführen
+            reproject(
+                source=img_array.transpose(2, 0, 1),
+                destination=destination,
+                src_transform=src_transform,
+                src_crs=src_crs,
+                dst_transform=dst_transform,
+                dst_crs=dst_crs,
+                resampling=Resampling.bilinear
+            )
+
+            im = Image.fromarray(destination.transpose(1, 2, 0), 'RGBA')
+
+            # Konvertiere das transformierte Bild in Base64
+            buffer = io.BytesIO()
+            im.save(buffer, format='PNG')
+            buffer.seek(0)
+            img_base64 = b64encode(buffer.read()).decode('utf-8')
+            img_data_url = f"data:image/png;base64,{img_base64}"
+
+            # Definiere die Bounds im neuen Koordinatensystem (EPSG:3857)
+            b = rasterio.warp.transform_bounds(src_crs, dst_crs, lon_min, lat_min, lon_max, lat_max)
+
+            # Erstelle das ImageOverlay mit den transformierten Daten
+            image_overlay = ImageOverlay(
+                url=img_data_url,
+                bounds=[(lat_min, lon_min), (lat_max, lon_max)], # use bounds in degree, even if map has another CRS
+                opacity=0.6
+            )
+            
             heatmap_layer = LayerGroup(layers=(heatmap,), name="Heatmap Layer")
-            m.add(heatmap_layer)
+            m.add_layer(heatmap_layer)
 
             velocity_layer = LayerGroup(layers=(velocity,), name="Velocity Layer")
-            m.add(velocity_layer)
+            m.add_layer(velocity_layer)
+
+            image_layer = LayerGroup(layers=(image_overlay,), name="Colormap Layer")
+            m.add_layer(image_layer)
         
         # Verbinde den Slider mit der Update-Funktion, observe function by ipywidgets instead of reactive by shiny
         slider.observe(update_map, names='value')
@@ -210,7 +284,7 @@ def server(input, output, session):
         m.add_control(layer_control)
 
         # Erstellen einer benutzerdefinierten Legende als HTML
-        colormap = linear.viridis.scale(round(min_wind_speed), round(max_wind_speed))  # Farbskala erstellen
+        # colormap = linear.viridis.scale(round(min_wind_speed), round(max_wind_speed))  # Farbskala erstellen
         legend_html = colormap._repr_html_()  # Erzeugt die HTML-Darstellung der Farbskala
         # HTML-Widget erstellen
         legend_widget = HTML(value=f"""
