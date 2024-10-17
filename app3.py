@@ -1,7 +1,7 @@
 from shiny import App, ui
-from ipywidgets import SelectionSlider, Layout, Play, VBox, jslink, Dropdown, HTML
+from ipywidgets import SelectionSlider, Layout, Play, VBox, jslink, Dropdown, HTML, Checkbox
 from shinywidgets import render_widget, output_widget
-from ipyleaflet import Map, Heatmap, WidgetControl, ColormapControl, LayersControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay
+from ipyleaflet import Map, Heatmap, WidgetControl, ColormapControl, LayersControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay, TileLayer
 from ipyleaflet.velocity import Velocity
 import numpy as np
 import itertools
@@ -13,6 +13,7 @@ from base64 import b64encode
 import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import from_bounds
+from ipyevents import Event
 
 # Datei laden und als xarray-Dataset öffnen
 file_path = "data_europe.grib2"
@@ -108,7 +109,16 @@ app_ui = ui.page_fluid(
 # Serverlogik für die Shiny App
 def server(input, output, session):
 
-    # Render das Leaflet-Widget mit render_widget
+    # Funktion, die bei Sitzungsende ausgeführt wird
+    def session_ended():
+        print("Session beendet. Benutzer hat die Verbindung getrennt.")
+        global initial
+        initial = 0
+
+    # Registriere die Funktion für das Sitzungsende
+    session.on_ended(session_ended)
+
+    # Render das Leaflet-Widget mit render_widget, already called at initial connection
     @output
     @render_widget
     def map():
@@ -117,27 +127,33 @@ def server(input, output, session):
         basemaps_dict = {
             "OpenStreetMap": basemaps.OpenStreetMap.Mapnik,
             "OpenTopoMap": basemaps.OpenTopoMap,
-            "NASAGIBS ViirsEarthAtNight": basemaps.NASAGIBS.ViirsEarthAtNight2012
+            "NASAGIBS ViirsEarthAtNight": basemaps.NASAGIBS.ViirsEarthAtNight2012,
+            "Google Map": TileLayer(
+                url='https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+                attribution='Google',
+                base=True  # Als Baselayer markieren
+            ),
         }
 
         # Initiale Basemap setzen
         m = Map(center=[(lat_min + lat_max) / 2, (lon_min + lon_max) / 2],
                 zoom=5,
-                layout=Layout(width='100%', height='100vh')
+                layout=Layout(width='100%', height='100vh'),
+                value='Google Maps'
             )
 
         # Dropdown-Menü zur Auswahl der Basemap
         dropdown = Dropdown(
             options=list(basemaps_dict.keys()),  # Basemap-Namen als Optionen
-            value="OpenStreetMap",  # Standardwert
             description='Basemap'
         )
+
         dropdown_control = WidgetControl(widget=dropdown, position='topright')
-        m.add_control(dropdown_control)
+        m.add(dropdown_control)
 
         # Aktiviere die erste Basemap
         current_basemap_layer = basemap_to_tiles(basemaps_dict[dropdown.value])
-        m.add_layer(current_basemap_layer)
+        m.add(current_basemap_layer)
 
         # Funktion zur Aktualisierung der Basemap
         def update_basemap(change):
@@ -146,7 +162,7 @@ def server(input, output, session):
             m.remove_layer(current_basemap_layer)
             # Füge die neu ausgewählte Basemap hinzu
             current_basemap_layer = basemap_to_tiles(basemaps_dict[dropdown.value])
-            m.add_layer(current_basemap_layer)
+            m.add(current_basemap_layer)
 
         # Verbinde das Dropdown-Menü mit der Update-Funktion
         dropdown.observe(update_basemap, names='value')
@@ -158,13 +174,16 @@ def server(input, output, session):
         slider_box = VBox([play, slider])
 
         slider_control = WidgetControl(widget=slider_box, position='topright')
-        m.add_control(slider_control)
+        m.add(slider_control)
 
         # Funktion zur Aktualisierung der Karte basierend auf dem Slider
         def update_map(change):
-            for layer in m.layers:
+
+            visibilities = []
+            for i, layer in enumerate(m.layers):
                 if isinstance(layer, LayerGroup):
-                    m.remove_layer(layer)
+                    visibilities[i].append({'name':layer.name, 'visibility':layer.visible})
+                    m.remove(layer)
             
             time_step = slider.value
             step_index = int((time_step - start_time) / step_size)
@@ -244,9 +263,6 @@ def server(input, output, session):
             img_base64 = b64encode(buffer.read()).decode('utf-8')
             img_data_url = f"data:image/png;base64,{img_base64}"
 
-            # Definiere die Bounds im neuen Koordinatensystem (EPSG:3857)
-            b = rasterio.warp.transform_bounds(src_crs, dst_crs, lon_min, lat_min, lon_max, lat_max)
-
             # Erstelle das ImageOverlay mit den transformierten Daten
             image_overlay = ImageOverlay(
                 url=img_data_url,
@@ -255,14 +271,54 @@ def server(input, output, session):
             )
             
             heatmap_layer = LayerGroup(layers=(heatmap,), name="Heatmap Layer")
-            m.add_layer(heatmap_layer)
+            #m.add(heatmap_layer)
 
             velocity_layer = LayerGroup(layers=(velocity,), name="Velocity Layer")
-            m.add_layer(velocity_layer)
+            #m.add(velocity_layer)
 
             image_layer = LayerGroup(layers=(image_overlay,), name="Colormap Layer")
-            m.add_layer(image_layer)
-        
+            #m.add(image_layer)
+
+            layers = [heatmap_layer, velocity_layer, image_layer]
+
+            for i in range(len(visibilities)):
+                if visibilities[i]['visibility']:
+                    name = visibilities[i]['name']
+                    for layer in layers:
+                        if name == layer.name:
+                            m.add(layer)
+
+            # Erstelle eine Checkbox für jeden Layer zur Kontrolle der Sichtbarkeit
+            if initial == 0:
+                for layer in layers:
+                    m.add(layer)
+
+                heatmap_checkbox = Checkbox(value=True, description="Heatmap Layer")
+                velocity_checkbox = Checkbox(value=True, description="Velocity Layer")
+                colormap_checkbox = Checkbox(value=True, description="Colormap Layer")
+
+                # Platziere die Checkboxes auf der Karte
+                layer_control_box = VBox([heatmap_checkbox, velocity_checkbox, colormap_checkbox])
+                layer_control_widget = WidgetControl(widget=layer_control_box, position='topright')
+
+                # Füge den custom LayerControl zur Karte hinzu
+                m.add_control(layer_control_widget)
+
+            # Erstelle eine Funktion, um die Sichtbarkeit der Layer zu steuern
+            def toggle_layer_visibility(change, layer):
+                if change['new']:
+                    layer.visible = True  # Layer sichtbar machen
+                    m.add(layer)  # Layer hinzufügen
+                else:
+                    layer.visible = False  # Layer unsichtbar machen
+                    m.remove(layer)  # Layer entfernen
+
+            # Verknüpfe die Checkboxes mit den entsprechenden Layern
+            heatmap_checkbox.observe(lambda change: toggle_layer_visibility(change, heatmap_layer), names='value')
+            velocity_checkbox.observe(lambda change: toggle_layer_visibility(change, velocity_layer), names='value')
+            colormap_checkbox.observe(lambda change: toggle_layer_visibility(change, image_layer), names='value')
+
+
         # Verbinde den Slider mit der Update-Funktion, observe function by ipywidgets instead of reactive by shiny
         slider.observe(update_map, names='value')
 
@@ -278,10 +334,13 @@ def server(input, output, session):
         # colormap=linear.Paired_06.scale(min_wind_speed, max_wind_speed)
         # # Füge die kontinuierliche Legende hinzu
         # colormap_control = ColormapControl(caption="Windgeschwindigkeit (m/s)", colormap=colormap, value_min=min_wind_speed, value_max=max_wind_speed, position="bottomright")
-        # m.add_control(colormap_control)
+        # m.add(colormap_control)
 
-        layer_control = LayersControl(position='bottomleft')
-        m.add_control(layer_control)
+        
+
+        
+        # layer_control = LayersControl(position='bottomleft')
+        # m.add(layer_control)
 
         # Erstellen einer benutzerdefinierten Legende als HTML
         # colormap = linear.viridis.scale(round(min_wind_speed), round(max_wind_speed))  # Farbskala erstellen
@@ -296,7 +355,7 @@ def server(input, output, session):
 
         # WidgetControl zur Karte hinzufügen
         legend_control = WidgetControl(widget=legend_widget, position="bottomright")
-        m.add_control(legend_control)
+        m.add(legend_control)
 
         m.add(FullScreenControl())
 
@@ -305,6 +364,6 @@ def server(input, output, session):
 # Shiny App erstellen und starten
 app = App(app_ui, server)
 
-
+app.run()
 
 # to run: shiny run app3.py
