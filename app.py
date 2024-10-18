@@ -10,7 +10,6 @@ import xarray as xr
 from PIL import Image
 import io
 from base64 import b64encode
-import rasterio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import from_bounds
 
@@ -27,7 +26,9 @@ lon_min, lon_max = -25, 45
 min_wind_speed = 5
 max_wind_speed = 6
 
-
+# Extrahiere die Windkomponenten für den aktuellen Zeitschritt
+lats = ds['latitude'].values
+lons = ds['longitude'].values
 
 # Filtere die Breitengrade (latitude) und Längengrade (longitude) auf den gewünschten Bereich für Europa
 lat_indices = np.where((lats >= lat_min) & (lats <= lat_max))[0]
