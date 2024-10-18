@@ -1,7 +1,7 @@
 from shiny import App, ui
 from ipywidgets import SelectionSlider, Layout, Play, VBox, jslink, Dropdown, HTML, Checkbox
 from shinywidgets import render_widget, output_widget
-from ipyleaflet import Map, Heatmap, WidgetControl, ColormapControl, LayersControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay, TileLayer
+from ipyleaflet import Map, Heatmap, WidgetControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay, TileLayer
 from ipyleaflet.velocity import Velocity
 import numpy as np
 import itertools
@@ -340,14 +340,6 @@ def server(input, output, session):
             update_map(None)
             initial = 1
 
-        # # Beispiel-Windgeschwindigkeitsspanne (min und max Windgeschwindigkeit in m/s)
-        # min_wind_speed = 0
-        # max_wind_speed = 30
-        # colormap=linear.Paired_06.scale(min_wind_speed, max_wind_speed)
-        # # Füge die kontinuierliche Legende hinzu
-        # colormap_control = ColormapControl(caption="Windgeschwindigkeit (m/s)", colormap=colormap, value_min=min_wind_speed, value_max=max_wind_speed, position="bottomright")
-        # m.add(colormap_control)
-
         # Erstellen einer benutzerdefinierten Legende als HTML
         legend_html = colormap._repr_html_()  # Erzeugt die HTML-Darstellung der Farbskala
         # HTML-Widget erstellen
@@ -371,4 +363,4 @@ app = App(app_ui, server)
 
 app.run()
 
-# to run: shiny run app3.py
+# to run: python app.py or shiny run app.py
