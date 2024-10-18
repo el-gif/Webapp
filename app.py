@@ -1,7 +1,7 @@
 from shiny import App, ui
 from ipywidgets import SelectionSlider, Layout, Play, VBox, jslink, Dropdown, HTML, Checkbox
 from shinywidgets import render_widget, output_widget
-from ipyleaflet import Map, Heatmap, WidgetControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay, TileLayer
+from ipyleaflet import Map, Heatmap, WidgetControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay, TileLayer, Marker, MarkerCluster
 from ipyleaflet.velocity import Velocity
 import numpy as np
 import itertools
@@ -12,6 +12,7 @@ import io
 from base64 import b64encode
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import from_bounds
+import pandas as pd
 
 # Datei laden und als xarray-Dataset öffnen
 file_path = "data_europe.grib2"
@@ -133,8 +134,32 @@ def server(input, output, session):
         # Initiale Basemap setzen
         m = Map(center=[(lat_min + lat_max) / 2, (lon_min + lon_max) / 2],
                 zoom=5,
-                layout=Layout(width='100%', height='100vh')
+                layout=Layout(width='100%', height='100vh'),
+                scroll_wheel_zoom=True
             )
+        
+        # Datei laden (relativer Pfad)
+        file_path = "./Global-Wind-Power-Tracker-June-2024.xlsx"
+        df = pd.read_excel(file_path, sheet_name='Data')
+
+        # Filtere die Daten für den geografischen Bereich in Europa
+        df_filtered = df[(df['Latitude'] >= lat_min) & (df['Latitude'] <= lat_max) & 
+                        (df['Longitude'] >= lon_min) & (df['Longitude'] <= lon_max)]
+
+        markers = [Marker(location=(row['Latitude'], row['Longitude'])) for _, row in df_filtered.iterrows()]
+        marker_cluster = MarkerCluster(markers=markers)
+
+        m.add(marker_cluster)
+
+        # Zoom-Änderungen beobachten und den Marker-Cluster neu berechnen
+        def on_zoom_change(change):
+            new_zoom = m.zoom  # Der aktuelle Zoom-Level der Karte
+            print(f"Zoom-Level geändert auf: {new_zoom}")
+            m.remove(marker_cluster)
+            m.add(marker_cluster)
+        
+        # Beobachte Zoom-Änderungen
+        m.observe(on_zoom_change, names='zoom')
 
         # Dropdown-Menü zur Auswahl der Basemap
         dropdown = Dropdown(
@@ -179,7 +204,7 @@ def server(input, output, session):
         def update_map(change):
 
             nonlocal layer_visibilities
-            nonlocal heatmap_layer, velocity_layer, colormap_layer # to guarantee use of current layer by slider.observe() function
+            nonlocal heatmap_layer, velocity_layer, colormap_layer # to guarantee use of current layer by observe() function of checkbox
             
             time_step = slider.value
             step_index = int((time_step - start_time) / step_size)
@@ -317,6 +342,7 @@ def server(input, output, session):
 
             # Erstelle eine Funktion, um die Sichtbarkeit der Layer zu steuern
             def toggle_layer_visibility(change, layer):
+                print(m.zoom)
                 if change['new']:
                     # Sichtbarkeit im Dictionary aktualisieren
                     layer_visibilities[layer]['visibility'] = True
