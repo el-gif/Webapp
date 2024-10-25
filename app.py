@@ -187,7 +187,7 @@ def server(input, output, session):
         dropdown.observe(update_basemap, names='value')
 
         # Erstelle einen Slider als WidgetControl und füge ihn zur Karte hinzu
-        play = Play(min=0, max=total_hours, step=step_size_hours, value=0, interval = 500, description='Time Step') # 500 ms pro Schritt
+        play = Play(min=0, max=total_hours, step=step_size_hours, value=0, interval=500, description='Time Step') # 500 ms pro Schritt
         slider = SelectionSlider(options=valid_times_interpol, value=valid_times_interpol[0], description='Time')
         jslink((play, 'value'), (slider, 'index'))
         slider_box = VBox([play, slider])
