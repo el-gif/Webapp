@@ -7,6 +7,5 @@ services:
     region: frankfurt
     plan: free
     branch: main
-    buildCommand: conda env update -f environment.yml && conda activate webapp_env_conda
-    startCommand: python webapp.py  # Update to match your main file
+    startCommand: ./start.sh
     autoDeploy: true
