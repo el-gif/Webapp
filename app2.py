@@ -17,7 +17,7 @@ lat_min, lat_max = 35, 72
 lon_min, lon_max = -25, 45
 
 # Load the WPPs (Excel file)
-WPP_file = "Global-Wind-Power-Tracker-June-2024.xlsx"
+WPP_file = "data/Global-Wind-Power-Tracker-June-2024.xlsx"
 df = pd.read_excel(WPP_file, sheet_name='Data')
 
 # Filter the data for Europe and extract relevant columns
@@ -31,7 +31,7 @@ operators = df_filtered['Operator'].values
 owners = df_filtered['Owner'].values
 
 # Load the wind data (Grib2 file)
-wind_file = "data_europe.grib2"
+wind_file = "data/data_europe.grib2"
 ds = xr.open_dataset(wind_file, engine='cfgrib')
 
 # Filter the data for Europe and extract relevant columns

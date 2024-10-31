@@ -3,10 +3,10 @@ services:
     runtime: python
     name: visualisation_service
     repo: https://github.com/el-gif/Webapp
-    numInstances: 1   # Adjust as needed
-    region: frankfurt # Optional, if available in your plan
-    plan: free        # Or choose another plan if you need more resources
-    branch: main      # Use the branch where `render.yaml` and `app2.py` are located
-    buildCommand: pip install -r requirements.txt
-    startCommand: python app2.py  # Update to match your main Python file
-    autoDeploy: true # Enables automatic deploys, if desired
+    numInstances: 1
+    region: frankfurt
+    plan: free
+    branch: main
+    buildCommand: conda env update -f environment.yml && pip install -r requirements.txt
+    startCommand: python app2.py  # Update to match your main file
+    autoDeploy: true

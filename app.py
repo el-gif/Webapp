@@ -15,7 +15,7 @@ from rasterio.transform import from_bounds
 import pandas as pd
 
 # Datei laden und als xarray-Dataset öffnen
-file_path = "data_europe.grib2"
+file_path = "data/data_europe.grib2"
 ds = xr.open_dataset(file_path, engine='cfgrib')
 valid_times = ds['valid_time'].values
 
