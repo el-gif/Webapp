@@ -8,5 +8,5 @@ services:
     plan: free
     branch: main
     buildCommand: conda env update -f environment.yml && pip install -r requirements.txt
-    startCommand: python app2.py  # Update to match your main file
+    startCommand: python webapp.py  # Update to match your main file
     autoDeploy: true
