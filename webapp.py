@@ -317,4 +317,7 @@ path_www = os.path.join(os.path.dirname(__file__), "www")
 
 # Start the app with the `www` directory as static content
 app = App(app_ui, server, static_assets={"/www": path_www})
-app.run()
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
