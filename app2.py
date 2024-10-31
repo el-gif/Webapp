@@ -1,7 +1,7 @@
 import io
 import os
 from openpyxl import Workbook
-from shiny import ui, App, reactive, render, session
+from shiny import ui, App, reactive
 from shinywidgets import render_widget, output_widget
 from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, Heatmap, AwesomeIcon
 from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML
