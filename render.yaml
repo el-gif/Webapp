@@ -1,0 +1,14 @@
+services:
+  # A web service on the Ruby native runtime
+  - type: web
+    runtime: python
+    name: visualisation_service
+    repo: https://github.com/render-examples/sinatra # Default: Repo containing render.yaml
+    numInstances: 3   # Manual scaling configuration. Default: 1 for new services
+    region: frankfurt # Default: oregon
+    plan: free    # Default: starter
+    branch: master      # Default: master
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn your_application.wsgi
+    autoDeploy: false # Disable automatic deploys
+    maxShutdownDelaySeconds: 120 # Increase graceful shutdown period. Default: 30, Max: 300
