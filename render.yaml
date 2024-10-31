@@ -7,5 +7,6 @@ services:
     region: frankfurt
     plan: free
     branch: main
-    startCommand: ./start.sh
+    buildCommand: conda env update -f environment.yml # && pip install -r requirements.txtrequirements.txt is being added automatically --> dummy file requirements.txt must exist 
+    startCommand: python webapp.py
     autoDeploy: true
