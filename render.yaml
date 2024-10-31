@@ -1,13 +1,12 @@
 services:
-  # A web service on the Ruby native runtime
   - type: web
     runtime: python
     name: visualisation_service
-    repo: https://github.com/render-examples/sinatra # Default: Repo containing render.yaml
-    numInstances: 3   # Manual scaling configuration. Default: 1 for new services
-    region: frankfurt # Default: oregon
-    plan: free    # Default: starter
-    branch: master      # Default: master
+    repo: https://github.com/el-gif/Webapp
+    numInstances: 1   # Adjust as needed
+    region: frankfurt # Optional, if available in your plan
+    plan: free        # Or choose another plan if you need more resources
+    branch: main      # Use the branch where `render.yaml` and `app2.py` are located
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn your_application.wsgi
-    autoDeploy: false # Disable automatic deploys
+    startCommand: python app2.py  # Update to match your main Python file
+    autoDeploy: true # Enables automatic deploys, if desired
