@@ -11,4 +11,3 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn your_application.wsgi
     autoDeploy: false # Disable automatic deploys
-    maxShutdownDelaySeconds: 120 # Increase graceful shutdown period. Default: 30, Max: 300
