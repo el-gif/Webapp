@@ -41,8 +41,7 @@ client = Client(
     resol="0p25"
 )
 
-# Überprüfen, ob die Variable `RENDER` gesetzt ist, um zu erkennen, ob die App auf Render läuft
-if os.getenv("RENDER"):
+if os.getenv("RENDER") or os.getenv("WEBSITE_HOSTNAME"): # for Render or Azure Server
     # for saving storage on server, only 4 time steps
     step_selection = [0, 3, 6, 9]
 else:
@@ -75,7 +74,7 @@ else:
 
 # Load the WPPs (Excel file)
 WPP_file = "data/Global-Wind-Power-Tracker-June-2024.xlsx"
-df = pd.read_excel(WPP_file, sheet_name='Data')
+df = pd.read_excel(WPP_file, sheet_name='Data', nrows=50)
 
 # Filter the data for Europe and extract relevant columns
 df_filtered = df[(df['Latitude'] >= lat_min) & (df['Latitude'] <= lat_max) & (df['Longitude'] >= lon_min) & (df['Longitude'] <= lon_max)]
@@ -325,9 +324,9 @@ app = App(app_ui, server, static_assets={"/www": path_www})
 
 if __name__ == "__main__":
     # Überprüfen, ob die Variable `RENDER` gesetzt ist, um zu erkennen, ob die App auf Render läuft
-    if os.getenv("RENDER"):
+    if os.getenv("RENDER") or os.getenv("WEBSITE_HOSTNAME"): # for Render or Azure Server
         host = "0.0.0.0"  # Für Render oder andere externe Deployments
     else:
         host = "127.0.0.1"  # Für lokale Entwicklung (localhost)
 
-    app.run(host=host, port=5000)
+    app.run(host=host, port=5000) # port binding
