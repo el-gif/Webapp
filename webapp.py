@@ -329,4 +329,4 @@ if __name__ == "__main__":
     else:
         host = "127.0.0.1"  # Für lokale Entwicklung (localhost)
 
-    app.run(host=host, port=5000) # port binding
+    app.run(host=host, port=8000) # port binding
