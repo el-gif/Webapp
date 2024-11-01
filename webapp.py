@@ -74,7 +74,7 @@ else:
 
 # Load the WPPs (Excel file)
 WPP_file = "data/Global-Wind-Power-Tracker-June-2024.xlsx"
-df = pd.read_excel(WPP_file, sheet_name='Data', nrows=50)
+df = pd.read_excel(WPP_file, sheet_name='Data')
 
 # Filter the data for Europe and extract relevant columns
 df_filtered = df[(df['Latitude'] >= lat_min) & (df['Latitude'] <= lat_max) & (df['Longitude'] >= lon_min) & (df['Longitude'] <= lon_max)]
@@ -329,4 +329,4 @@ if __name__ == "__main__":
     else:
         host = "127.0.0.1"  # Für lokale Entwicklung (localhost)
 
-    app.run(host=host, port=8000) # port binding
+    app.run(host=host, port=8000) # port binding: set the server port to 8000, because this is what Azure expects
