@@ -4,7 +4,7 @@ from openpyxl import Workbook
 from shiny import ui, App, reactive
 from shinywidgets import render_widget, output_widget
 from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, Heatmap, AwesomeIcon
-from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML
+from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML #  pip install ipywidgets==7.6.5, because version 8 has an issue with popups (https://stackoverflow.com/questions/75434737/shiny-for-python-using-add-layer-for-popus-from-ipyleaflet)
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -41,12 +41,16 @@ client = Client(
     resol="0p25"
 )
 
-# for saving storage on server, only 4 time steps
-step_selection = [0, 3, 6, 9]
-# all available steps up to 7 days (168 hours)
-# step_selection = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60,
-#      63, 66, 69, 72, 75, 78, 81, 84, 87, 90, 93, 96, 99, 102, 105, 108, 111, 114, 117, 120,
-#      123, 126, 129, 132, 135, 138, 141, 144, 150, 156, 162, 168]
+# Überprüfen, ob die Variable `RENDER` gesetzt ist, um zu erkennen, ob die App auf Render läuft
+if os.getenv("RENDER"):
+    # for saving storage on server, only 4 time steps
+    step_selection = [0, 3, 6, 9]
+else:
+    #all available steps up to 7 days (168 hours)
+    step_selection = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60,
+        63, 66, 69, 72, 75, 78, 81, 84, 87, 90, 93, 96, 99, 102, 105, 108, 111, 114, 117, 120,
+        123, 126, 129, 132, 135, 138, 141, 144, 150, 156, 162, 168]
+
 # all available steps
 # step_selection = [
 #     0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60,
@@ -228,13 +232,14 @@ def server(input, output, session):
                     f"<strong>Owner:</strong> {owner}<br>"
                     f"<strong>Wind speed forecast:</strong> select forecast step<br>"
                     f"<strong>Production forecast:</strong> select forecast step<br>"
-                    f"<button onclick='Shiny.setInputValue(\"selected_plant_index\", {index})'>Download Forecast</button>"
+                    f"<button onclick='Shiny.setInputValue(\"selected_plant_index\", {index})'>Download Forecast</button>"''
             )
             marker = Marker(
                 location=(lat, lon),
                 popup=popup_content,
                 icon=icon,
-                rise_on_hover=True
+                rise_offset=True,
+                draggable=False
             )
             markers.append(marker)
 
@@ -319,5 +324,10 @@ path_www = os.path.join(os.path.dirname(__file__), "www")
 app = App(app_ui, server, static_assets={"/www": path_www})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port)
+    # Überprüfen, ob die Variable `RENDER` gesetzt ist, um zu erkennen, ob die App auf Render läuft
+    if os.getenv("RENDER"):
+        host = "0.0.0.0"  # Für Render oder andere externe Deployments
+    else:
+        host = "127.0.0.1"  # Für lokale Entwicklung (localhost)
+
+    app.run(host=host, port=5000)

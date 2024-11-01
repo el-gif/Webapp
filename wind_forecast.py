@@ -1,5 +1,5 @@
 from shiny import App, ui
-from ipywidgets import SelectionSlider, Layout, Play, VBox, jslink, Dropdown, HTML, Checkbox
+from ipywidgets import SelectionSlider, Layout, Play, VBox, jslink, Dropdown, HTML, Checkbox #  pip install ipywidgets==7.6.5, because version 8 has an issue with popups (https://stackoverflow.com/questions/75434737/shiny-for-python-using-add-layer-for-popus-from-ipyleaflet)
 from shinywidgets import render_widget, output_widget
 from ipyleaflet import Map, Heatmap, WidgetControl, LayerGroup, basemaps, basemap_to_tiles, FullScreenControl, ImageOverlay, TileLayer, Marker, MarkerCluster
 from ipyleaflet.velocity import Velocity
@@ -139,7 +139,7 @@ def server(input, output, session):
             )
         
         # Datei laden (relativer Pfad)
-        file_path = "./Global-Wind-Power-Tracker-June-2024.xlsx"
+        file_path = "data/Global-Wind-Power-Tracker-June-2024.xlsx"
         df = pd.read_excel(file_path, sheet_name='Data')
 
         # Filtere die Daten für den geografischen Bereich in Europa
