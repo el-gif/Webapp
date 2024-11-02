@@ -109,15 +109,6 @@ app_ui = ui.page_fluid(
 # Serverlogik für die Shiny App
 def server(input, output, session):
 
-    # Funktion, die bei Sitzungsende ausgeführt wird
-    def session_ended():
-        print("Session beendet. Benutzer hat die Verbindung getrennt.")
-        global initial
-        initial = 0
-
-    # Registriere die Funktion für das Sitzungsende
-    session.on_ended(session_ended)
-
     # Render das Leaflet-Widget mit render_widget, already called at initial connection
     @output
     @render_widget
