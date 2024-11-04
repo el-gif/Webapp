@@ -74,7 +74,7 @@ else:
 
 # Load the WPPs (Excel file)
 WPP_file = "data/Global-Wind-Power-Tracker-June-2024.xlsx"
-df = pd.read_excel(WPP_file, sheet_name='Data')
+df = pd.read_excel(WPP_file, sheet_name='Data', nrows=500)
 
 # Filter the data for Europe and extract relevant columns
 df_filtered = df[(df['Latitude'] >= lat_min) & (df['Latitude'] <= lat_max) & (df['Longitude'] >= lon_min) & (df['Longitude'] <= lon_max)]
