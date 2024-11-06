@@ -1,9 +1,10 @@
+# no spaces, not even in folder name!
 __pycache__
-globalpowerplantdatabasev130
-GPC-BNDR-ADM-HPR-SAMPLE-WO-SELECTED_SHP/
-GPC-POST-GEO-SAMPLE-WO-SELECTED/
-QGIS Project
-qgis2web Test Project
+data/boundaries
+data/production_history
+data/weather_forecast
+data/weather_history
+QGIS_Project
+qgis2web_Test_Project
 webapp_env
 WS_100
-data_europe.grib2
