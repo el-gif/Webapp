@@ -16,7 +16,6 @@ from ecmwf.opendata import Client
 from branca.colormap import linear
 import time
 import warnings
-
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Define initial variables

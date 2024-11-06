@@ -1,8 +1,8 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 import numpy as np
 import xarray as xr
 import os
-os.environ['FOR_DISABLE_CONSOLE_CTRL_HANDLER'] = 'T'
+os.environ['FOR_DISABLE_CONSOLE_CTRL_HANDLER'] = 'T' # to disable Ctrl+C crashing python when having scipy.interpolate imported (disables Fortrun runtime library from intercepting Ctrl+C signal and lets it to the Python interpreter)
 from scipy.interpolate import interp1d
 
 app = FastAPI()
@@ -10,7 +10,7 @@ app = FastAPI()
 lat_min, lat_max = 35, 72
 lon_min, lon_max = -25, 45
 
-# Bestehende Daten laden (dies könnte in die Funktion integriert werden)
+# Bestehende Daten laden
 data_file_path = "data/weather_forecast/data_europe.grib2"
 ds = xr.open_dataset(data_file_path, engine='cfgrib')
 
@@ -21,7 +21,15 @@ power_output_normalised = [value / max_capacity for value in power_output]
 power_curve_normalised = interp1d(wind_speeds, power_output_normalised, kind='cubic', fill_value="extrapolate")
 
 @app.get("/forecast")
-async def get_forecast(latitude: float, longitude: float):
+async def get_forecast(latitude: float = Query(None), longitude: float = Query(None)):
+    if latitude is None or longitude is None:
+        return {
+            "message": "Please provide both 'latitude' and 'longitude' as query parameters.",
+            "usage_example": "/forecast?latitude=50.5&longitude=10.0",
+            "latitude_range": f"{lat_min} to {lat_max}",
+            "longitude_range": f"{lon_min} to {lon_max}"
+        }
+    
     if latitude < lat_min or latitude > lat_max or longitude < lon_min or longitude > lon_max:
         raise HTTPException(status_code=400, detail="Coordinates out of range")
 
@@ -53,9 +61,7 @@ async def get_forecast(latitude: float, longitude: float):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculating forecast: {str(e)}")
 
-
-
 # FastAPI über Uvicorn starten
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

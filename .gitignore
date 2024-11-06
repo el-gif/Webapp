@@ -4,6 +4,8 @@ data/boundaries
 data/production_history
 data/weather_forecast
 data/weather_history
+data/WPPs/MaStR_Dokumentation_Gesamtdatenexport.pdf
+data/WPPs/MaStR_EinheitenWind.xml
 QGIS_Project
 qgis2web_Test_Project
 webapp_env
