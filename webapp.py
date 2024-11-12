@@ -4,7 +4,7 @@ os.environ['FOR_DISABLE_CONSOLE_CTRL_HANDLER'] = 'T' # to disable Ctrl+C crashin
 from openpyxl import Workbook
 from shiny import ui, App, reactive
 from shinywidgets import render_widget, output_widget
-from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, Heatmap, AwesomeIcon
+from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, AwesomeIcon, Heatmap
 from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML  # pip install ipywidgets==7.6.5, because version 8 has an issue with popups (https://stackoverflow.com/questions/75434737/shiny-for-python-using-add-layer-for-popus-from-ipyleaflet)
 import numpy as np
 import pandas as pd
@@ -17,6 +17,8 @@ from branca.colormap import linear
 import time
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+import time
+starttime = time.time()
 
 # Define initial variables
 initial = 0
@@ -53,7 +55,7 @@ else:
 #     210, 216, 222, 228, 234, 240
 # ]
 
-# Function to check the age of the file
+# Function to check the age of the file, to avoid a cron-job, which is a paid feature on most Cloud Computing platforms
 def is_data_stale(wind_file, time_threshold):
     if not os.path.exists(wind_file):
         # File does not exist, data must be fetched
@@ -88,13 +90,11 @@ u = ds_filtered['u100'].values
 v = ds_filtered['v100'].values
 valid_times = ds_filtered['valid_time'].values
 
-# Load the WPPs (Excel file)
-WPP_file = "data/WPPs/Global-Wind-Power-Tracker-June-2024.xlsx"
-df = pd.read_excel(WPP_file, sheet_name='Data')  # nrows=500 for deployment on Azure Cloud
-df['ID'] = list(range(2, len(df) + 2))
-
 # Filter the data for Europe and extract relevant columns
-df_filtered = df[(df['Latitude'] >= lat_min) & (df['Latitude'] <= lat_max) & (df['Longitude'] >= lon_min) & (df['Longitude'] <= lon_max)]
+df_filtered = pd.read_parquet("data/WPPs/Global-Wind-Power-Tracker-Europe.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
+df_filtered = df_filtered.iloc[::10]
+print(len(df_filtered))
+df_filtered['ID'] = list(range(2, len(df_filtered) + 2))
 ids = df_filtered['ID'].values
 lats_plants = df_filtered['Latitude'].values
 lons_plants = df_filtered['Longitude'].values
@@ -212,44 +212,46 @@ def server(input, output, session):
             layout=Layout(width='100%', height='100vh'),
             scroll_wheel_zoom=True
         )
-
+        print(time.time()-starttime)
         markers = []
         for index, (lat, lon, name, capacity, status, operator, owner) in enumerate(zip(lats_plants, lons_plants, project_names, capacities, statuses, operators, owners)):
-            # Choose the colour based on status
-            if status == "operating":
-                color = "green"
-            elif status in ["construction", "pre-construction", "announced"]:
-                color = "orange"
-            else:
-                color = "red"
 
-            # Create an AwesomeIcon for the marker
-            icon = AwesomeIcon(
-                name="circle",
-                marker_color=color
-            )
+            # if status == "operating":
+            #     color = "green"
+            # elif status in ["construction", "pre-construction", "announced"]:
+            #     color = "orange"
+            # else:
+            #     color = "red"
+
+            # icon = AwesomeIcon(
+            #     name="circle",
+            #     marker_color=color
+            # )
 
             popup_content = HTML(
                 value=f"<strong>Project Name:</strong> {name}<br>"
-                      f"<strong>Status:</strong> {status}<br>"
-                      f"<strong>Capacity:</strong> {capacity} MW<br>"
-                      f"<strong>Operator:</strong> {operator}<br>"
-                      f"<strong>Owner:</strong> {owner}<br>"
-                      f"<strong>Wind speed forecast:</strong> select forecast step<br>"
-                      f"<strong>Production forecast:</strong> select forecast step<br>"
-                      f"<button onclick='Shiny.setInputValue(\"selected_plant_index\", {index})'>Download Forecast</button>"''
+                    f"<strong>Status:</strong> {status}<br>"
+                    f"<strong>Capacity:</strong> {capacity} MW<br>"
+                    f"<strong>Operator:</strong> {operator}<br>"
+                    f"<strong>Owner:</strong> {owner}<br>"
+                    f"<strong>Wind speed forecast:</strong> select forecast step<br>"
+                    f"<strong>Production forecast:</strong> select forecast step<br>"
+                    f"<button onclick='Shiny.setInputValue(\"selected_plant_index\", {index})'>Download Forecast</button>"
             )
+
             marker = Marker(
                 location=(lat, lon),
                 popup=popup_content,
-                icon=icon,
+                #icon=icon, # takes too long
                 rise_offset=True,
                 draggable=False
             )
             markers.append(marker)
-
+        print(time.time()-starttime)
+        # Cluster erstellen und zur Karte hinzufügen
         marker_cluster = MarkerCluster(markers=markers)
         m.add(marker_cluster)
+
 
         # Slider for time steps
         play = Play(min=0, max=total_hours, step=step_size_hours, value=0, interval=500, description='Time Step')
@@ -279,23 +281,23 @@ def server(input, output, session):
                                      f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>" \
                                      f"<strong>Production forecast:</strong> {production:.2f} MW" \
                                      f"<button onclick='Shiny.setInputValue(\"selected_plant_index\", {index})'>Download Forecast</button>"
-
+                
             # Prepare heatmap data for "operating" wind plants
             heatmap_data = [(lat, lon, prod) for lat, lon, prod, status in zip(lats_plants, lons_plants, productions, statuses) if status == "operating"]
-            
+
             # Remove existing heatmap layer if any and add new one
             for layer in m.layers:
                 if isinstance(layer, Heatmap):
                     m.remove(layer)
             heatmap = Heatmap(locations=heatmap_data, radius=5, blur=5, max_zoom=10)
             m.add(heatmap)
-
+        
         global initial
         # Initialise the map with the first time step
         if initial == 0:
             update_map(None)
             initial = 1
-
+        
         # Observe slider value changes and update map
         slider.observe(update_map, names='value')
 
