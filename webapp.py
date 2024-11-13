@@ -92,7 +92,8 @@ valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
 df_filtered = pd.read_parquet("data/WPPs/Global-Wind-Power-Tracker-Europe.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
-df_filtered = df_filtered.iloc[::10]
+print(len(df_filtered))
+df_filtered = df_filtered[df_filtered['Status'] == 'operating'].iloc[::5] # only operating WPPs, and only every 5th to alleviate computational and storage burden
 print(len(df_filtered))
 df_filtered['ID'] = list(range(2, len(df_filtered) + 2))
 ids = df_filtered['ID'].values

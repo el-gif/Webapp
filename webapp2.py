@@ -2,7 +2,7 @@ import io
 import os
 os.environ['FOR_DISABLE_CONSOLE_CTRL_HANDLER'] = 'T' # to disable Ctrl+C crashing python when having scipy.interpolate imported (disables Fortrun runtime library from intercepting Ctrl+C signal and lets it to the Python interpreter)
 from openpyxl import Workbook
-from shiny import ui, App, reactive
+from shiny import ui, App, reactive, render
 from shinywidgets import render_widget, output_widget
 from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, AwesomeIcon, Heatmap
 from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML  # pip install ipywidgets==7.6.5, because version 8 has an issue with popups (https://stackoverflow.com/questions/75434737/shiny-for-python-using-add-layer-for-popus-from-ipyleaflet)
@@ -14,10 +14,11 @@ from scipy.interpolate import interp2d  # pip install scipy==1.13.1, interp2d mu
 import base64
 from ecmwf.opendata import Client
 from branca.colormap import linear
-import time
+import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-
+import time
+starttime = time.time()
 
 # Define initial variables
 initial = 0
@@ -54,7 +55,7 @@ else:
 #     210, 216, 222, 228, 234, 240
 # ]
 
-# Function to check the age of the file
+# Function to check the age of the file, to avoid a cron-job, which is a paid feature on most Cloud Computing platforms
 def is_data_stale(wind_file, time_threshold):
     if not os.path.exists(wind_file):
         # File does not exist, data must be fetched
@@ -91,6 +92,9 @@ valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
 df_filtered = pd.read_parquet("data/WPPs/Global-Wind-Power-Tracker-Europe.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
+print(len(df_filtered))
+df_filtered = df_filtered[df_filtered['Status'] == 'operating'].iloc[::5] # only operating WPPs, and only every 5th to alleviate computational and storage burden
+print(len(df_filtered))
 df_filtered['ID'] = list(range(2, len(df_filtered) + 2))
 ids = df_filtered['ID'].values
 lats_plants = df_filtered['Latitude'].values
@@ -144,8 +148,7 @@ steps = int(total_hours / step_size_hours)
 for i in range(steps):
     valid_times_interpol.append(start_time + i * step_size)
 
-# Shiny app user interface with download button
-app_ui = ui.page_fluid(
+map_page = ui.page_fluid(
     output_widget("map"),
     ui.head_content(
         ui.tags.script("""
@@ -160,11 +163,36 @@ app_ui = ui.page_fluid(
         """)
     ),
     ui.head_content(ui.tags.link(rel="icon", type="image/png", href="/www/WPP_icon2.png")),
-    ui.panel_title(window_title="Wind Power Forecast", title="")
+)
+
+app_ui = ui.page_navbar(
+    ui.nav_panel("WPP database", map_page),
+    ui.nav_panel(
+        "Customise WPP",
+        ui.row(
+            ui.column(4,  # Left column for input fields
+                ui.input_numeric("lat", "Turbine Latitude", value=50.0, min=lat_min, max=lat_max),
+                ui.input_numeric("lon", "Turbine Longitude", value=10.0, min=lon_min, max=lon_max),
+                ui.input_select("turbine_type", "Turbine Type", choices=["Type A", "Type B", "Type C"]),
+                ui.input_slider("hub_height", "Turbine Hub Height (m)", min=0, max=200, value=100),
+                ui.input_slider("commission_date", "Commission Date", min=1990, max=2024, value=2022, step=1),
+                ui.input_slider("rotor_diameter", "Rotor Diameter (m)", min=0, max=100, value=50),
+                ui.input_slider("capacity", "Capacity (kW)", min=0, max=20000, value=5000),
+                ui.input_action_button("download_forecast", "Download Forecast as Excel")
+            ),
+            ui.column(2,  # Right column for output
+                ui.output_ui("output_summary"),
+                ui.output_plot("output_forecast")
+            )
+        )
+    ),
+    title="Wind Production Forecast"
 )
 
 # server function
 def server(input, output, session):
+
+    ##### Page 1 #####
 
     # Function for downloading production data (with conversion from datetime64 to datetime)
     async def download_data_for_marker(plant_index):
@@ -206,47 +234,49 @@ def server(input, output, session):
         m = Map(
             center=[(lat_min + lat_max) / 2, (lon_min + lon_max) / 2],
             zoom=5,
-            layout=Layout(width='100%', height='100vh'),
+            layout=Layout(width='100%', height='95vh'),
             scroll_wheel_zoom=True
         )
-
+        print(time.time()-starttime)
         markers = []
         for index, (lat, lon, name, capacity, status, operator, owner) in enumerate(zip(lats_plants, lons_plants, project_names, capacities, statuses, operators, owners)):
-            # Choose the colour based on status
-            if status == "operating":
-                color = "green"
-            elif status in ["construction", "pre-construction", "announced"]:
-                color = "orange"
-            else:
-                color = "red"
 
-            # Create an AwesomeIcon for the marker
-            icon = AwesomeIcon(
-                name="circle",
-                marker_color=color
-            )
+            # if status == "operating":
+            #     color = "green"
+            # elif status in ["construction", "pre-construction", "announced"]:
+            #     color = "orange"
+            # else:
+            #     color = "red"
+
+            # icon = AwesomeIcon(
+            #     name="circle",
+            #     marker_color=color
+            # )
 
             popup_content = HTML(
                 value=f"<strong>Project Name:</strong> {name}<br>"
-                      f"<strong>Status:</strong> {status}<br>"
-                      f"<strong>Capacity:</strong> {capacity} MW<br>"
-                      f"<strong>Operator:</strong> {operator}<br>"
-                      f"<strong>Owner:</strong> {owner}<br>"
-                      f"<strong>Wind speed forecast:</strong> select forecast step<br>"
-                      f"<strong>Production forecast:</strong> select forecast step<br>"
-                      f"<button onclick='Shiny.setInputValue(\"selected_plant_index\", {index})'>Download Forecast</button>"''
+                    f"<strong>Status:</strong> {status}<br>"
+                    f"<strong>Capacity:</strong> {capacity} MW<br>"
+                    f"<strong>Operator:</strong> {operator}<br>"
+                    f"<strong>Owner:</strong> {owner}<br>"
+                    f"<strong>Wind speed forecast:</strong> select forecast step<br>"
+                    f"<strong>Production forecast:</strong> select forecast step<br>"
+                    f"<button onclick='Shiny.setInputValue(\"selected_plant_index\", {index})'>Download Forecast</button>"
             )
+
             marker = Marker(
                 location=(lat, lon),
                 popup=popup_content,
-                icon=icon,
+                #icon=icon, # takes too long
                 rise_offset=True,
                 draggable=False
             )
             markers.append(marker)
-
+        print(time.time()-starttime)
+        # Cluster erstellen und zur Karte hinzufügen
         marker_cluster = MarkerCluster(markers=markers)
         m.add(marker_cluster)
+
 
         # Slider for time steps
         play = Play(min=0, max=total_hours, step=step_size_hours, value=0, interval=500, description='Time Step')
@@ -286,13 +316,13 @@ def server(input, output, session):
                     m.remove(layer)
             heatmap = Heatmap(locations=heatmap_data, radius=5, blur=5, max_zoom=10)
             m.add(heatmap)
-
+        
         global initial
         # Initialise the map with the first time step
         if initial == 0:
             update_map(None)
             initial = 1
-
+        
         # Observe slider value changes and update map
         slider.observe(update_map, names='value')
 
@@ -318,6 +348,134 @@ def server(input, output, session):
                 "data": file_data_base64,
                 "filename": f"production_{project_names[plant_index]}.xlsx"
             })
+    
+
+    ##### Page 2 #####
+
+    forecast_data = reactive.Value({"wind_speeds": None, "productions": None})
+
+    # Capture user input and display configuration summary
+    @output
+    @render.text
+    def output_summary():
+        # Capture inputs
+        lat_plant = input.lat()
+        lon_plant = input.lon()
+        turbine_type = input.turbine_type()
+        hub_height = input.hub_height()
+        commission_date = input.commission_date()
+        rotor_diameter = input.rotor_diameter()
+        capacity = input.capacity()
+
+        # Return configuration summary text
+        summary_html = (
+            f"<b>Turbine Configuration:</b><br>"
+            f"<b>Location:</b> ({lat_plant}, {lon_plant})<br>"
+            f"<b>Type:</b> {turbine_type}<br>"
+            f"<b>Hub Height:</b> {hub_height} m<br>"
+            f"<b>Commission Date:</b> {commission_date}<br>"
+            f"<b>Rotor Diameter:</b> {rotor_diameter} m<br>"
+            f"<b>Capacity:</b> {capacity} kW"
+        )
+        return ui.HTML(summary_html)
+
+    # Plot forecasted production over time
+    @output
+    @render.plot
+    def output_forecast():
+        # Retrieve inputs
+        lat_plant = input.lat()
+        lon_plant = input.lon()
+        capacity = input.capacity()
+
+        # Calculate forecasted productions
+        productions = []
+        wind_speeds_at_points = []
+        for step_index in range(len(valid_times_interpol)):
+            spatial_interpolator = interp2d(lons, lats, total_selection_interpol[step_index], kind='cubic')
+            wind_speeds_at_points.append(spatial_interpolator(lon_plant, lat_plant)[0])
+            productions.append(np.abs(power_curve_normalised(wind_speeds_at_points[-1]) * capacity))
+
+        # Store the forecast data in the reactive `forecast_data`
+        forecast_data.set({"wind_speeds": wind_speeds_at_points, "productions": productions})
+
+        # Plot forecasted production
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.plot(valid_times_interpol, productions, label="Predicted Production (kW)")
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Production (kW)")
+        ax.set_title("Forecasted Wind Turbine Production")
+        ax.legend()
+        ax.grid(True)
+        plt.tight_layout()
+        return fig  # Returning the figure will embed it in the app
+
+    def download_forecast_data():
+
+        data = forecast_data.get()
+        wind_speeds, productions = data["wind_speeds"], data["productions"]
+
+        lat_plant = input.lat()
+        lon_plant = input.lon()
+        turbine_type = input.turbine_type()
+        hub_height = input.hub_height()
+        commission_date = input.commission_date()
+        rotor_diameter = input.rotor_diameter()
+        capacity = input.capacity()
+
+        # Create a new workbook and add data
+        wb = Workbook()
+        
+        # Sheet1: Turbine Specifications
+        ws_specs = wb.active
+        ws_specs.title = "Turbine Specifications"
+
+        # Add headers and turbine specs as a table
+        specs_data = [
+            ["Specification", "Value"],
+            ["Location", f"({lat_plant}, {lon_plant})"],
+            ["Type", turbine_type],
+            ["Hub Height (m)", hub_height],
+            ["Commission Date", commission_date],
+            ["Rotor Diameter (m)", rotor_diameter],
+            ["Capacity (kW)", capacity]
+        ]
+        for row in specs_data:
+            ws_specs.append(row)
+
+        # Sheet2: Production Forecast
+        ws_forecast = wb.create_sheet("Production Forecast")
+
+        # Add headers for date, wind speed, and production
+        ws_forecast.append(["Date", "Wind Speed (m/s)", "Production (kW)"])
+
+        # Add production data per time step
+        for time, wind_speed, production in zip(valid_times_interpol, wind_speeds, productions):
+            time_as_datetime = pd.to_datetime(time).to_pydatetime()
+            ws_forecast.append([time_as_datetime, wind_speed, production])  # Ensure wind speed and production values are correctly added
+
+        # Save in buffer and return
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        return buffer.getvalue()
+
+    # Function to trigger download on button click
+    @reactive.Effect
+    @reactive.event(input.download_forecast)
+    async def trigger_download():
+        # Retrieve forecast data as bytes
+        file_data = download_forecast_data()
+        
+        # Encode file in Base64
+        file_data_base64 = base64.b64encode(file_data).decode('utf-8')
+        
+        # Send file as Base64 to client for download
+        await session.send_custom_message("download", {
+            "data": file_data_base64,
+            "filename": "forecasted_production.xlsx"
+        })
+    
 
 # Define absolute path to `www` folder
 path_www = os.path.join(os.path.dirname(__file__), "www")
