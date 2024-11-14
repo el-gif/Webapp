@@ -152,6 +152,10 @@ steps = int(total_hours / step_size_hours)
 for i in range(steps):
     valid_times_interpol.append(start_time + i * step_size)
 
+example_data = pd.read_parquet("data/production_history/Example/example_time_series.parquet")
+example_dates = example_data['Date']
+example_production = example_data['Production (kW)']
+
 app_ui = ui.page_navbar(
     ui.nav_panel(
         "WPP database",
@@ -160,7 +164,7 @@ app_ui = ui.page_navbar(
     ui.nav_panel(
         "Customise WPP",
         ui.row(
-            ui.column(3,  # Left column for input fields
+            ui.column(2,  # Left column for input fields
                 ui.input_numeric("lat", "Turbine Latitude", value=50.0, min=lat_min, max=lat_max),
                 ui.input_numeric("lon", "Turbine Longitude", value=10.0, min=lon_min, max=lon_max),
                 ui.input_select("turbine_type", "Turbine Type", choices=["Type A", "Type B", "Type C"]),
@@ -168,12 +172,17 @@ app_ui = ui.page_navbar(
                 ui.input_slider("commission_date", "Commission Date", min=1990, max=2024, value=2022, step=1),
                 ui.input_slider("rotor_diameter", "Rotor Diameter (m)", min=0, max=100, value=50),
                 ui.input_slider("capacity", "Capacity (kW)", min=0, max=20000, value=5000),
-                ui.input_action_button("download_forecast", "Download Forecast")
+                ui.tags.br(),
+                ui.input_file("upload_file", "Contribute data for this configuration", accept=[".xlsx"]),
+                ui.input_action_link("download_example", "Download Example File")
             ),
-            ui.column(9,  # Right column for output
+            ui.column(10,  # Right column for output
                 ui.panel_well(  # Panel zur Zentrierung des Inhalts
                     ui.output_ui("output_summary"),
-                    ui.output_plot("output_forecast")
+                    ui.tags.br(),
+                    ui.output_plot("output_graph"),
+                    ui.tags.br(),
+                    ui.input_action_button("action_button", "Download Forecast")
                 ),
             )
         ),
@@ -190,7 +199,7 @@ app_ui = ui.page_navbar(
     ),
     ui.head_content(
         ui.tags.script("""
-            Shiny.addCustomMessageHandler("download", function(message) {
+            Shiny.addCustomMessageHandler("download_file", function(message) {
                 var link = document.createElement('a');
                 link.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + message.data;
                 link.download = message.filename;
@@ -219,6 +228,15 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.entire_forecast)
     def entire_forecast_function():
+        # Update der Eingabefelder mit neuen Werten
+        ui.update_numeric("lat", value=lat)
+        ui.update_numeric("lon", value=lon)
+        ui.update_select("turbine_type", selected=turbine_type)
+        ui.update_slider("hub_height", value=hub_height)
+        ui.update_slider("commission_date", value=commission_date)
+        ui.update_slider("rotor_diameter", value=rotor_diameter)
+        ui.update_slider("capacity", value=capacity)
+
         id = input.entire_forecast()['id']
 
         index = list(ids).index(id)
@@ -235,15 +253,6 @@ def server(input, output, session):
         capacity = capacities[index]
         commission_date = commission_dates[index]
 
-        # Update der Eingabefelder mit neuen Werten
-        ui.update_numeric("lat", value=lat)
-        ui.update_numeric("lon", value=lon)
-        ui.update_select("turbine_type", selected=turbine_type)
-        ui.update_slider("hub_height", value=hub_height)
-        ui.update_slider("commission_date", value=commission_date)
-        ui.update_slider("rotor_diameter", value=rotor_diameter)
-        ui.update_slider("capacity", value=capacity)
-
         # Wechsel zu "Customise WPP" Tab
         ui.update_navs("navbar_selected", selected="customise_WPP")
 
@@ -256,7 +265,7 @@ def server(input, output, session):
             layout=Layout(width='100%', height='95vh'),
             scroll_wheel_zoom=True
         )
-        print(time.time()-starttime)
+
         markers = []
         for lat, lon, name, capacity, status, operator, owner, commission_date, id in zip(lats_plants, lons_plants, project_names, capacities, statuses, operators, owners, commission_dates, ids):
 
@@ -295,7 +304,7 @@ def server(input, output, session):
                 draggable=False
             )
             markers.append(marker)
-        print(time.time()-starttime)
+
         # Cluster erstellen und zur Karte hinzufügen
         marker_cluster = MarkerCluster(markers=markers)
         m.add(marker_cluster)
@@ -361,6 +370,65 @@ def server(input, output, session):
     ##### Page 2 #####
 
     forecast_data = reactive.Value({"wind_speeds": None, "productions": None})
+    time_series = reactive.Value(None)
+    button_status = reactive.Value("download")
+
+    # Function to handle file upload
+    @reactive.Effect
+    @reactive.event(input.upload_file)
+    def handle_file_upload():
+        if input.upload_file() is not None:
+            try:
+                file = input.upload_file()[0]['datapath']
+                # Attempt to read Excel file with specified columns
+                time_series_data = pd.read_excel(file)
+                time_series.set(time_series_data) # calls output_graph function
+                ui.update_action_button("action_button", label="Contribute Data")
+                button_status.set('contribute')
+            except Exception as e:
+                # Send feedback to UI if file format is incorrect
+                ui.notification_show("Wrong file format, please download the example file for orientation.", duration=None)
+    
+    # Generate example file for download
+    @reactive.Effect
+    @reactive.event(input.download_example)
+    async def generate_example_file():
+        # Create example workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Example Time Series"
+        
+        # Add header and example data
+        ws.append(["Date", "Production (kW)"])
+        for date, production in zip(example_dates, example_production):
+            ws.append([date, production])
+        
+        # Save workbook to buffer
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        
+        # Encode and send for download
+        file_data_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        await session.send_custom_message("download_file", {
+            "data": file_data_base64,
+            "filename": "example_time_series.xlsx"
+        })
+
+    # Observing slider changes to revert to forecast view
+    @reactive.Effect
+    @reactive.event(input.lat, input.lon, input.turbine_type, input.hub_height, input.commission_date, input.rotor_diameter, input.capacity)
+    def observe_slider_changes():
+        # reset reactive variables
+        project_name.set(None)
+        status.set(None)
+        operator.set(None)
+        owner.set(None)
+
+        # display regular elements
+        time_series.set(None) # calls output_graph function
+        ui.update_action_button("action_button", label="Download Forecast")
+        button_status.set('download')
 
     # Capture user input and display configuration summary
     @output
@@ -375,19 +443,13 @@ def server(input, output, session):
         rotor_diameter = input.rotor_diameter()
         capacity = input.capacity()
 
-        extra_info = ""
-        if project_name.get() or status.get() or operator.get() or owner.get():
-            extra_info = (
-                f"<b>Project Name:</b> {project_name.get()}<br>"
-                f"<b>Status:</b> {status.get()}<br>"
-                f"<b>Operator:</b> {operator.get()}<br>"
-                f"<b>Owner:</b> {owner.get()}"
-            )
-
         # Return configuration summary text
         summary_html = (
             f"<b>Turbine Configuration</b><br><br>"
-            f"{extra_info}<br>"
+            f"<b>Project Name:</b> {project_name.get()}<br>"
+            f"<b>Status:</b> {status.get()}<br>"
+            f"<b>Operator:</b> {operator.get()}<br>"
+            f"<b>Owner:</b> {owner.get()}<br>"
             f"<b>Location:</b> ({lat_plant}, {lon_plant})<br>"
             f"<b>Type:</b> {turbine_type}<br>"
             f"<b>Hub Height:</b> {hub_height} m<br>"
@@ -400,29 +462,38 @@ def server(input, output, session):
     # Plot forecasted production over time
     @output
     @render.plot
-    def output_forecast():
-        # Retrieve inputs
-        lat_plant = input.lat()
-        lon_plant = input.lon()
-        capacity = input.capacity()
-
-        # Calculate forecasted productions
-        productions = []
-        wind_speeds_at_points = []
-        for step_index in range(len(valid_times_interpol)):
-            spatial_interpolator = interp2d(lons, lats, total_selection_interpol[step_index], kind='cubic')
-            wind_speeds_at_points.append(spatial_interpolator(lon_plant, lat_plant)[0])
-            productions.append(np.abs(power_curve_normalised(wind_speeds_at_points[-1]) * capacity))
-
-        # Store the forecast data in the reactive `forecast_data`
-        forecast_data.set({"wind_speeds": wind_speeds_at_points, "productions": productions})
-
-        # Plot forecasted production
+    def output_graph():
         fig, ax = plt.subplots(figsize=(8, 4))
-        ax.plot(valid_times_interpol, productions, label="Predicted Production (kW)")
         ax.set_xlabel("Date")
         ax.set_ylabel("Production (kW)")
-        ax.set_title("Forecasted Wind Turbine Production")
+
+        time_series_data = time_series.get()
+
+        if time_series_data is not None and not time_series_data.empty: # check if user has uploaded time series to plot it
+            ax.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1], label="Historical Production (kW)")
+            print(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'))
+            print(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce').dtype)
+            print(time_series_data.iloc[:, 1])
+            print(time_series_data.iloc[:, 1].dtype)
+            ax.set_title("Historical Wind Turbine Production")
+        else: # Retrieve inputs
+            lat_plant = input.lat()
+            lon_plant = input.lon()
+            capacity = input.capacity()
+
+            # Calculate forecasted productions
+            productions = []
+            wind_speeds_at_points = []
+            for step_index in range(len(valid_times_interpol)):
+                spatial_interpolator = interp2d(lons, lats, total_selection_interpol[step_index], kind='cubic')
+                wind_speeds_at_points.append(spatial_interpolator(lon_plant, lat_plant)[0])
+                productions.append(np.abs(power_curve_normalised(wind_speeds_at_points[-1]) * capacity))
+
+            # Store the forecast data in the reactive `forecast_data`
+            forecast_data.set({"wind_speeds": wind_speeds_at_points, "productions": productions})
+            ax.plot(valid_times_interpol, productions, label="Predicted Production (kW)")
+            ax.set_title("Forecasted Wind Turbine Production")
+
         ax.legend()
         ax.grid(True)
         plt.tight_layout()
@@ -441,6 +512,12 @@ def server(input, output, session):
         rotor_diameter = input.rotor_diameter()
         capacity = input.capacity()
 
+        # Retrieve the actual values of reactive objects
+        project_name_value = project_name.get()
+        status_value = status.get()
+        operator_value = operator.get()
+        owner_value = owner.get()
+
         # Create a new workbook and add data
         wb = Workbook()
         
@@ -451,24 +528,17 @@ def server(input, output, session):
         # Define the specs_data list with required values only
         specs_data = [
             ["Specification", "Value"],
+            ["Project Name", project_name_value],
+            ["Status", status_value],
+            ["Operator", operator_value],
+            ["Owner", owner_value],
             ["Location", f"({lat_plant}, {lon_plant})"],
             ["Type", turbine_type],
             ["Hub Height (m)", hub_height],
             ["Commission Date", commission_date],
-            ["Rotor Diameter", rotor_diameter],
+            ["Rotor Diameter (m)", rotor_diameter],
             ["Capacity (kW)", capacity]
         ]
-
-        # Create a list for optional values and add them only if they are available
-        optional_data = []
-        if project_name.get() or status.get() or operator.get() or owner.get():
-            optional_data.append(["Project Name", project_name.get()])
-            optional_data.append(["Status", status.get()])
-            optional_data.append(["Operator", operator.get()])
-            optional_data.append(["Owner", owner.get()])
-
-        # Insert optional_data at the beginning of specs_data, after the header
-        specs_data[1:1] = optional_data
 
         # Populate the workbook
         for row in specs_data:
@@ -493,20 +563,29 @@ def server(input, output, session):
 
     # Function to trigger download on button click
     @reactive.Effect
-    @reactive.event(input.download_forecast)
-    async def trigger_download():
-        # Retrieve forecast data as bytes
-        file_data = download_forecast_data()
+    @reactive.event(input.action_button)
+    async def action():
+        if button_status.get() == "download":
         
-        # Encode file in Base64
-        file_data_base64 = base64.b64encode(file_data).decode('utf-8')
+            # Retrieve forecast data as bytes
+            file_data = download_forecast_data()
+            
+            # Encode file in Base64
+            file_data_base64 = base64.b64encode(file_data).decode('utf-8')
+            
+            # Send file as Base64 to client for download
+            await session.send_custom_message("download_file", {
+                "data": file_data_base64,
+                "filename": "forecasted_production.xlsx"
+            })
         
-        # Send file as Base64 to client for download
-        await session.send_custom_message("download", {
-            "data": file_data_base64,
-            "filename": "forecasted_production.xlsx"
-        })
-    
+        else: # button_status.get() == "contribute"
+            ui.notification_show(
+                "Thank you for uploading your time series. It will be checked for plausibility and possibly used to improve the model at the next training.",
+                duration=None
+            )
+            # save time_series somewhere until training
+            time_series.set(None)
 
 # Define absolute path to `www` folder
 path_www = os.path.join(os.path.dirname(__file__), "www")
