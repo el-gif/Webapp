@@ -111,13 +111,13 @@ def server(input, output, session):
     @render_widget
     def map():
 
-        # Basemap dropdown options: https://ipyleaflet.readthedocs.io/en/latest/map_and_basemaps/basemaps.html, currently the one at the top is always chosen as standard
-        basemap_tiles_dict = {
-            "Google Map": TileLayer(url='https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'),
-            "OpenStreetMap": basemap_to_tiles(basemaps.OpenStreetMap.Mapnik),
-            "OpenTopoMap": basemap_to_tiles(basemaps.OpenTopoMap),
-            "NASAGIBS ViirsEarthAtNight": basemap_to_tiles(basemaps.NASAGIBS.ViirsEarthAtNight2012)
-        }
+        # # Basemap dropdown options: https://ipyleaflet.readthedocs.io/en/latest/map_and_basemaps/basemaps.html, currently the one at the top is always chosen as standard
+        # basemap_tiles_dict = {
+        #     "Google Map": TileLayer(url='https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'),
+        #     "OpenStreetMap": basemap_to_tiles(basemaps.OpenStreetMap.Mapnik),
+        #     "OpenTopoMap": basemap_to_tiles(basemaps.OpenTopoMap),
+        #     "NASAGIBS ViirsEarthAtNight": basemap_to_tiles(basemaps.NASAGIBS.ViirsEarthAtNight2012)
+        # }
 
         # Set initial basemap
         m = Map(center=[(lat_min + lat_max) / 2, (lon_min + lon_max) / 2],
@@ -126,53 +126,53 @@ def server(input, output, session):
                 scroll_wheel_zoom=True
             )
         
-        # Load file (relative path)
-        file_path = "data/WPPs/Global-Wind-Power-Tracker-June-2024.xlsx"
-        df = pd.read_excel(file_path, sheet_name='Data')
+        # # Load file (relative path)
+        # file_path = "data/WPPs/Global-Wind-Power-Tracker-June-2024.xlsx"
+        # df = pd.read_excel(file_path, sheet_name='Data')
 
-        # Filter the data for the geographic area in Europe
-        df_filtered = df[(df['Latitude'] >= lat_min) & (df['Latitude'] <= lat_max) & 
-                        (df['Longitude'] >= lon_min) & (df['Longitude'] <= lon_max)]
+        # # Filter the data for the geographic area in Europe
+        # df_filtered = df[(df['Latitude'] >= lat_min) & (df['Latitude'] <= lat_max) & 
+        #                 (df['Longitude'] >= lon_min) & (df['Longitude'] <= lon_max)]
 
-        markers = [Marker(location=(row['Latitude'], row['Longitude'])) for _, row in df_filtered.iterrows()]
-        marker_cluster = MarkerCluster(markers=markers)
+        # markers = [Marker(location=(row['Latitude'], row['Longitude'])) for _, row in df_filtered.iterrows()]
+        # marker_cluster = MarkerCluster(markers=markers)
 
-        m.add(marker_cluster)
+        # m.add(marker_cluster)
 
-        # Observe zoom changes and recalculate the marker cluster
-        def on_zoom_change(change):
-            new_zoom = m.zoom  # The current zoom level of the map
-            print(f"Zoom level changed to: {new_zoom}")
-            m.remove(marker_cluster)
-            m.add(marker_cluster)
+        # # Observe zoom changes and recalculate the marker cluster
+        # def on_zoom_change(change):
+        #     new_zoom = m.zoom  # The current zoom level of the map
+        #     print(f"Zoom level changed to: {new_zoom}")
+        #     m.remove(marker_cluster)
+        #     m.add(marker_cluster)
         
-        # Observe zoom changes
-        m.observe(on_zoom_change, names='zoom')
+        # # Observe zoom changes
+        # m.observe(on_zoom_change, names='zoom')
 
-        # Dropdown menu to select the basemap
-        dropdown = Dropdown(
-            options=list(basemap_tiles_dict.keys()),  # Basemap names as options
-            description='Basemap'
-        )
+        # # Dropdown menu to select the basemap
+        # dropdown = Dropdown(
+        #     options=list(basemap_tiles_dict.keys()),  # Basemap names as options
+        #     description='Basemap'
+        # )
 
-        dropdown_control = WidgetControl(widget=dropdown, position='topright')
-        m.add(dropdown_control)
+        # dropdown_control = WidgetControl(widget=dropdown, position='topright')
+        # m.add(dropdown_control)
 
-        # Activate the first basemap
-        current_basemap_layer = basemap_tiles_dict[dropdown.value]
-        m.add(current_basemap_layer)
+        # # Activate the first basemap
+        # current_basemap_layer = basemap_tiles_dict[dropdown.value]
+        # m.add(current_basemap_layer)
 
-        # Function to update the basemap
-        def update_basemap(change):
-            nonlocal current_basemap_layer
-            # Remove the current basemap
-            m.remove(current_basemap_layer)
-            # Add the newly selected basemap
-            current_basemap_layer = basemap_tiles_dict[dropdown.value]
-            m.add(current_basemap_layer)
+        # # Function to update the basemap
+        # def update_basemap(change):
+        #     nonlocal current_basemap_layer
+        #     # Remove the current basemap
+        #     m.remove(current_basemap_layer)
+        #     # Add the newly selected basemap
+        #     current_basemap_layer = basemap_tiles_dict[dropdown.value]
+        #     m.add(current_basemap_layer)
 
-        # Link the dropdown menu with the update function
-        dropdown.observe(update_basemap, names='value')
+        # # Link the dropdown menu with the update function
+        # dropdown.observe(update_basemap, names='value')
 
         # Create a slider as a WidgetControl and add it to the map
         play = Play(min=0, max=total_hours, step=step_size_hours, value=0, interval=500, description='Time Step')  # 500 ms per step
@@ -231,7 +231,7 @@ def server(input, output, session):
                     r = int(hex_colour[1:3], 16)
                     g = int(hex_colour[3:5], 16)
                     b = int(hex_colour[5:7], 16)
-                    a = 255  # Full opacity
+                    a = 255 # Full opacity
 
                     rgba_image[i, j] = (r, g, b, a)
 

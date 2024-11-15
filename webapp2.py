@@ -228,15 +228,6 @@ def server(input, output, session):
     @reactive.effect
     @reactive.event(input.entire_forecast)
     def entire_forecast_function():
-        # Update der Eingabefelder mit neuen Werten
-        ui.update_numeric("lat", value=lat)
-        ui.update_numeric("lon", value=lon)
-        ui.update_select("turbine_type", selected=turbine_type)
-        ui.update_slider("hub_height", value=hub_height)
-        ui.update_slider("commission_date", value=commission_date)
-        ui.update_slider("rotor_diameter", value=rotor_diameter)
-        ui.update_slider("capacity", value=capacity)
-
         id = input.entire_forecast()['id']
 
         index = list(ids).index(id)
@@ -252,6 +243,15 @@ def server(input, output, session):
         lon = lons_plants[index]
         capacity = capacities[index]
         commission_date = commission_dates[index]
+
+        # Update der Eingabefelder mit neuen Werten vor Wechseln des Tabs
+        ui.update_numeric("lat", value=lat)
+        ui.update_numeric("lon", value=lon)
+        ui.update_select("turbine_type", selected=turbine_type)
+        ui.update_slider("hub_height", value=hub_height)
+        ui.update_slider("commission_date", value=commission_date)
+        ui.update_slider("rotor_diameter", value=rotor_diameter)
+        ui.update_slider("capacity", value=capacity)
 
         # Wechsel zu "Customise WPP" Tab
         ui.update_navs("navbar_selected", selected="customise_WPP")
@@ -320,7 +320,9 @@ def server(input, output, session):
         def update_map(change):
             time_step = slider.value
             step_index = int((time_step - start_time) / step_size)
-
+            print(lons.shape)
+            print(lats.shape)
+            print(total_selection_interpol[step_index].shape)
             spatial_interpolator = interp2d(lons, lats, total_selection_interpol[step_index], kind='cubic')
             wind_speeds_at_points = [spatial_interpolator(lon, lat)[0] for lon, lat in zip(lons_plants, lats_plants)]
 
@@ -382,7 +384,11 @@ def server(input, output, session):
                 file = input.upload_file()[0]['datapath']
                 # Attempt to read Excel file with specified columns
                 time_series_data = pd.read_excel(file)
+                h = time_series.get()
+                print('vorher', h)
                 time_series.set(time_series_data) # calls output_graph function
+                h = time_series.get()
+                print('nachher', h)
                 ui.update_action_button("action_button", label="Contribute Data")
                 button_status.set('contribute')
             except Exception as e:
@@ -467,6 +473,10 @@ def server(input, output, session):
         ax.set_xlabel("Date")
         ax.set_ylabel("Production (kW)")
 
+        # Add horizontal dashed line for capacity
+        capacity = input.capacity()
+        ax.axhline(y=capacity, color='gray', linestyle='--', label=f"Capacity ({capacity} kW)")
+
         time_series_data = time_series.get()
 
         if time_series_data is not None and not time_series_data.empty: # check if user has uploaded time series to plot it
@@ -479,7 +489,6 @@ def server(input, output, session):
         else: # Retrieve inputs
             lat_plant = input.lat()
             lon_plant = input.lon()
-            capacity = input.capacity()
 
             # Calculate forecasted productions
             productions = []
