@@ -102,7 +102,7 @@ df_filtered['ID'] = list(range(1, len(df_filtered) + 1))
 ids = df_filtered['ID'].values
 lats_plants = df_filtered['Latitude'].values
 lons_plants = df_filtered['Longitude'].values
-capacities = df_filtered['Capacity (MW)'].values
+capacities = df_filtered['Capacity (MW)'].values * 1e3
 project_names = df_filtered['Project Name'].values
 statuses = df_filtered['Status'].values
 operators = df_filtered['Operator'].values
@@ -171,7 +171,7 @@ app_ui = ui.page_navbar(
                 ui.input_slider("hub_height", "Turbine Hub Height (m)", min=0, max=200, value=100),
                 ui.input_slider("commission_date", "Commission Date", min=1990, max=2024, value=2022, step=1),
                 ui.input_slider("rotor_diameter", "Rotor Diameter (m)", min=0, max=100, value=50),
-                ui.input_slider("capacity", "Capacity (kW)", min=0, max=20000, value=5000),
+                ui.input_slider("capacity", "Capacity (kW)", min=0, max=500000, value=10000),
                 ui.tags.br(),
                 ui.input_file("upload_file", "Contribute data for this configuration", accept=[".xlsx"]),
                 ui.input_action_link("download_example", "Download Example File")
@@ -195,6 +195,7 @@ app_ui = ui.page_navbar(
             "This web application visualises wind power production forecasts for wind power plants across Europe. "
             "Users can view wind plant information, forecasted wind speeds, and production values on an interactive map. "
             "Each wind plant can be customised by selecting its attributes, and predictions are displayed based on input parameters."
+            "All given times are in Central European Time (UTC+1), please consider this especially, when contributing your own data."
         )
     ),
     ui.head_content(
@@ -225,9 +226,14 @@ def server(input, output, session):
     operator = reactive.Value(None)
     owner = reactive.Value(None)
 
+    is_programmatic_change = reactive.Value(False)
+
     @reactive.effect
     @reactive.event(input.entire_forecast)
     def entire_forecast_function():
+        # Setzen des Flags: Änderungen sind programmatisch
+        is_programmatic_change.set(True)
+
         id = input.entire_forecast()['id']
 
         index = list(ids).index(id)
@@ -238,7 +244,7 @@ def server(input, output, session):
         operator.set(operators[index])
         owner.set(owners[index])
 
-        # Dann die anderen Parameter extrahieren
+        # Parameter extrahieren
         lat = lats_plants[index]
         lon = lons_plants[index]
         capacity = capacities[index]
@@ -284,13 +290,13 @@ def server(input, output, session):
             popup_content = HTML(
                 f"<strong>Project Name:</strong> {name}<br>"
                 f"<strong>Status:</strong> {status}<br>"
-                f"<strong>Capacity:</strong> {capacity} MW<br>"
+                f"<strong>Capacity:</strong> {capacity} kW<br>"
                 f"<strong>Operator:</strong> {operator}<br>"
                 f"<strong>Owner:</strong> {owner}<br>"
                 f"<strong>Type:</strong> {turbine_type}<br>"
-                f"<strong>Height:</strong> {hub_height} MW<br>"
+                f"<strong>Height:</strong> {hub_height} m<br>"
                 f"<strong>Comission Date:</strong> {commission_date}<br>"
-                f"<strong>Diameter:</strong> {rotor_diameter}<br>"                    
+                f"<strong>Diameter:</strong> {rotor_diameter} m<br>"                    
                 f"<strong>Wind speed forecast:</strong> select forecast step<br>"
                 f"<strong>Production forecast:</strong> select forecast step<br>"
                 f"<button onclick=\"Shiny.setInputValue(\'entire_forecast\', {{id: {id}}})\">Entire Forecast</button>"
@@ -320,9 +326,6 @@ def server(input, output, session):
         def update_map(change):
             time_step = slider.value
             step_index = int((time_step - start_time) / step_size)
-            print(lons.shape)
-            print(lats.shape)
-            print(total_selection_interpol[step_index].shape)
             spatial_interpolator = interp2d(lons, lats, total_selection_interpol[step_index], kind='cubic')
             wind_speeds_at_points = [spatial_interpolator(lon, lat)[0] for lon, lat in zip(lons_plants, lats_plants)]
 
@@ -333,15 +336,15 @@ def server(input, output, session):
                 marker.popup.value = \
                     f"<strong>Project Name:</strong> {name}<br>"\
                     f"<strong>Status:</strong> {status}<br>"\
-                    f"<strong>Capacity:</strong> {capacity} MW<br>"\
+                    f"<strong>Capacity:</strong> {capacity} kW<br>"\
                     f"<strong>Operator:</strong> {operator}<br>"\
                     f"<strong>Owner:</strong> {owner}<br>"\
                     f"<strong>Type:</strong> {turbine_type}<br>"\
-                    f"<strong>Height:</strong> {hub_height} MW<br>"\
+                    f"<strong>Height:</strong> {hub_height} m<br>"\
                     f"<strong>Comission Date:</strong> {commission_date}<br>"\
-                    f"<strong>Diameter:</strong> {rotor_diameter}<br>"\
-                    f"<strong>Wind speed forecast:</strong> {wind_speed}<br>"\
-                    f"<strong>Production forecast:</strong> {production}<br>"\
+                    f"<strong>Diameter:</strong> {rotor_diameter} m<br>"\
+                    f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
+                    f"<strong>Production forecast:</strong> {production:.2f} kW<br>"\
                     f"<button onclick=\"Shiny.setInputValue(\'entire_forecast\', {{id: {id}}})\">Entire Forecast</button>"
                 
             # Prepare heatmap data for "operating" wind plants
@@ -384,11 +387,7 @@ def server(input, output, session):
                 file = input.upload_file()[0]['datapath']
                 # Attempt to read Excel file with specified columns
                 time_series_data = pd.read_excel(file)
-                h = time_series.get()
-                print('vorher', h)
                 time_series.set(time_series_data) # calls output_graph function
-                h = time_series.get()
-                print('nachher', h)
                 ui.update_action_button("action_button", label="Contribute Data")
                 button_status.set('contribute')
             except Exception as e:
@@ -425,6 +424,10 @@ def server(input, output, session):
     @reactive.Effect
     @reactive.event(input.lat, input.lon, input.turbine_type, input.hub_height, input.commission_date, input.rotor_diameter, input.capacity)
     def observe_slider_changes():
+        # Überspringen, wenn Änderungen programmatisch sind
+        if is_programmatic_change.get():
+            return
+        
         # reset reactive variables
         project_name.set(None)
         status.set(None)
@@ -435,6 +438,9 @@ def server(input, output, session):
         time_series.set(None) # calls output_graph function
         ui.update_action_button("action_button", label="Download Forecast")
         button_status.set('download')
+
+        # Zurücksetzen des Flags
+        is_programmatic_change.set(False)
 
     # Capture user input and display configuration summary
     @output
@@ -449,10 +455,12 @@ def server(input, output, session):
         rotor_diameter = input.rotor_diameter()
         capacity = input.capacity()
 
+        project_name_value = project_name.get()
+
         # Return configuration summary text
         summary_html = (
             f"<b>Turbine Configuration</b><br><br>"
-            f"<b>Project Name:</b> {project_name.get()}<br>"
+            f"<b>Project Name:</b> {project_name_value}<br>"
             f"<b>Status:</b> {status.get()}<br>"
             f"<b>Operator:</b> {operator.get()}<br>"
             f"<b>Owner:</b> {owner.get()}<br>"
@@ -481,10 +489,6 @@ def server(input, output, session):
 
         if time_series_data is not None and not time_series_data.empty: # check if user has uploaded time series to plot it
             ax.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1], label="Historical Production (kW)")
-            print(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'))
-            print(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce').dtype)
-            print(time_series_data.iloc[:, 1])
-            print(time_series_data.iloc[:, 1].dtype)
             ax.set_title("Historical Wind Turbine Production")
         else: # Retrieve inputs
             lat_plant = input.lat()
