@@ -99,7 +99,6 @@ valid_times = ds_filtered['valid_time'].values
 # Filter the data for Europe and extract relevant columns
 df = pd.read_parquet("data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
 df = df.iloc[::100] # only every 100th to alleviate computational and storage burden
-df['ID'] = list(range(1, len(df) + 1))
 ids = df['ID'].values
 project_names = df['Name'].values + ", " + df['2nd name'].values
 lats_plants = df['Latitude'].values
