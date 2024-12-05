@@ -1,98 +1,73 @@
 import pandas as pd
+import os
+import numpy as np
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
 
-# Laden der Daten
-df_wind_power = pd.read_parquet("data/WPPs/The_Wind_Power.parquet")
-df_assignment = pd.read_excel("data/Assignment.xlsx")
+# Basisverzeichnisse
+input_dir = r"E:\MA_data\raw production history ENTSO-E"
+output_dir = r"C:\Users\alexa\Documents\Webapp\data\production_history\processed_new"
 
-import math
+# Liste der Monate von 2015-01 bis 2024-10 generieren
+months = pd.date_range(start="2015-01", end="2015-01", freq="MS").strftime("%Y_%m").tolist()
 
-counter = 0
+# For-Schleife für jede Datei
+for month in months:
+    # Dateipfad erstellen
+    input_file = os.path.join(input_dir, f"{month}_ActualGenerationOutputPerGenerationUnit_16.1.A_r2.1.csv")
+    output_file = os.path.join(output_dir, f"production_summary_{month}.xlsx")
 
-# Funktion zum Ersetzen von NaN-Werten
-def replace_nan(data):
-    for i in range(len(data)):
-        if math.isnan(data[i]):  # Überprüfen, ob der Wert NaN ist
-            global counter
-            counter += 1
-            data[i] = data[i - 1] if i > 0 else 0
-    return data
+    # Überprüfen, ob die Datei existiert
+    if not os.path.exists(input_file):
+        print(f"Datei nicht gefunden: {input_file}")
+        continue
 
-# Filtere nur Zeilen, bei denen "ID_The-Wind-Power" nicht "not found" ist
-df_assignment = df_assignment[df_assignment["ID_The-Wind-Power"] != "not found"]
+    # Datei einlesen
+    print(f"Bearbeite Datei: {input_file}")
+    data = pd.read_csv(input_file, sep='\t')
 
-# Extrahiere und entpacke alle gültigen IDs aus der Spalte "ID_The-Wind-Power"
-def extract_ids(value):
-    # Überprüfen, ob der Wert eine Liste ist, und ggf. in einzelne IDs zerlegen
-    if isinstance(value, str) and value.startswith("[") and value.endswith("]"):
-        return eval(value)  # Konvertiert die Zeichenkette in eine Liste
-    elif isinstance(value, (int, str)):
-        return [int(value)]  # Einzelne IDs werden in eine Liste gewandelt
-    return []
+    # Filtere nach GenerationUnitType == 'Wind Onshore' oder 'Wind Offshore'
+    filtered_data = data[(data['GenerationUnitType'] == 'Wind Onshore ') | (data['GenerationUnitType'] == 'Wind Offshore ')]
 
-valid_ids = set()
-df_assignment["ID_The-Wind-Power"].apply(lambda x: valid_ids.update(extract_ids(x)))
+    # Konvertiere 'DateTime (UTC)' in datetime
+    filtered_data.loc[:, 'DateTime (UTC)'] = pd.to_datetime(filtered_data['DateTime (UTC)'])
 
-df_filtered = df_wind_power[df_wind_power['ID'].isin(valid_ids)].copy()
-actual_ids = set(df_filtered['ID'])
-suspended_ids = valid_ids - actual_ids
+    # Wichtige Spalten identifizieren, 'AreaCode', 'AreaDisplayName', 'AreaTypeCode' and 'MapCode' of identical WPPs may differ --> use at least one of them as a criterion to identify unique windfarms, and sort out the duplicates manually, because otherwise, the production data are appended twice to the same wind farm
+    unique_windfarms = filtered_data[['GenerationUnitName', 'GenerationUnitCode', 'GenerationUnitType', 'GenerationUnitInstalledCapacity(MW)', 'AreaCode']].drop_duplicates()
 
-print("number potential WPPs:", len(valid_ids))
-print("number actual WPPs:", len(actual_ids))
-print("number suspended WPPs (no name, location, capacity or status not in operation):", len(suspended_ids))
+    # Listen für die Produktion zu jeder Stunde hinzufügen
+    production_data = []
+    counter = 0
+    for _, row in unique_windfarms.iterrows():
+        counter += 1
+        # Filtern der Daten für das aktuelle Windkraftwerk
+        windfarm_data = filtered_data[
+            (filtered_data['GenerationUnitName'] == row['GenerationUnitName']) &
+            (filtered_data['AreaCode'] == row['AreaCode']) # important to avoid adding to a wind farm production data of all its duplicates
+        ]
 
-# Füge Spalten für Produktion von 2015_01 bis 2024_10 hinzu
-new_columns = {f"{year}_{month:02d}": [[] for _ in range(len(df_filtered))]
-            for year in range(2015, 2025) for month in range(1, 13)
-            if f"{year}_{month:02d}" in df_assignment.columns}
+        # Erstelle Liste mit Sublisten mit Zeit und Produktion. 2D-Array nicht sinnvoll, da keine Kommas eingefügt werden und Zeilenumbrüche zwischen den Sublisten entstehen --> Schwiereigkeiten beim erneuten Einlesen
+        production_array = [
+            [time, production]
+            for time, production in zip(
+                windfarm_data['DateTime (UTC)'],
+                windfarm_data['ActualGenerationOutput(MW)']
+            )
+            if pd.notna(production)  # Überspringe fehlende Werte
+        ]
 
-# Füge die neuen Spalten zum DataFrame hinzu
-df_filtered = pd.concat([df_filtered, pd.DataFrame(new_columns, index=df_filtered.index)], axis=1)
+        # Daten für das Windkraftwerk hinzufügen
+        row_data = {
+            'GenerationUnitName': row['GenerationUnitName'],
+            'GenerationUnitCode': row['GenerationUnitCode'],
+            'GenerationUnitType': row['GenerationUnitType'],
+            'GenerationUnitInstalledCapacity(MW)': row['GenerationUnitInstalledCapacity(MW)'],
+            'Production': production_array
+        }
+        production_data.append(row_data)
 
-# Gehe durch jede Zeile der Assignment-Datei und füge Produktionsdaten hinzu
-for index, row in df_assignment.iterrows():
-    
-    ids_in_row = extract_ids(row["ID_The-Wind-Power"])
-    first_id = ids_in_row[0]
+    # DataFrame erstellen und in Excel speichern
+    output_df = pd.DataFrame(production_data)
+    output_df.to_excel(output_file, index=False)
 
-    if first_id in suspended_ids:
-        continue # jump to next iteration, because following line would fail for suspended_ids
-
-    current_index = df_filtered.loc[df_filtered['ID'] == first_id].index[0]
-
-    # add production values for each month, only requires the first ID
-    for year in range(2015, 2025):
-        for month in range(1, 13):
-            column_name = f"{year}_{month:02d}"
-            if column_name in df_assignment.columns: # neglect 2024_11 and 2024_12
-                production_month = row[column_name]
-                if isinstance(production_month, str): # type(value) = str, meaning value = production values
-                    production_month = production_month.replace("nan", "float('nan')")
-                    production_month = eval(production_month) # [[]] <-- "[[]]"
-                    production_month = production_month[0] # [] <-- [[]]
-                    # value = replace_nan(value)
-                    existing_production = df_filtered.at[current_index, column_name]
-                    
-                    if existing_production == []: # no production values in cell for this month
-                        df_filtered.at[current_index, column_name] = production_month
-                    else: # several production values to be added to one WPP
-                        combined_production = [a + b for a, b in zip(existing_production, production_month)]
-                        df_filtered.at[current_index, column_name] = combined_production
-
-    # add capacities of WPPs, if several are assigned to one row in the assignment table
-    if first_id in actual_ids and len(ids_in_row) > 1: # only treat every id once here, because rows are discarded
-        total_power = 0
-        for id in ids_in_row:
-            total_power += df_filtered.loc[df_filtered['ID'] == id, "Total power"].item() # add power
-            if id != first_id:
-                df_filtered = df_filtered[df_filtered['ID'] != id] # delete from dataframe
-        df_filtered.loc[df_filtered['ID'] == first_id, "Total power"] = total_power
-    
-    # keep track of treated IDs to not try to delete rows twice 
-    for id in ids_in_row:
-        if id in actual_ids:
-            actual_ids.discard(id)
-
-actual_cluster_ids = set(df_filtered['ID'])
-print("number WPPs after clustering", len(actual_cluster_ids))
-print(f"{counter} nan values have been estimated")
-df_filtered.to_excel("data/WPPs+production_history.xlsx", index=False)
+    print(f"Excel-Datei wurde erfolgreich erstellt: {output_file}")
