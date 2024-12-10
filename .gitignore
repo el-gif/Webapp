@@ -3,5 +3,6 @@ __pycache__
 data
 QGIS_Project
 qgis2web_Test_Project
+runs
 webapp_env
 WS_100
