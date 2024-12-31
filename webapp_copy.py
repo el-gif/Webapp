@@ -22,6 +22,7 @@ import math
 import joblib
 import torch
 import torch.nn as nn
+from sklearn.preprocessing import OneHotEncoder
 
 # Define initial variables
 initial = 0
@@ -95,8 +96,9 @@ valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
 df = pd.read_parquet("data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
-df = df.iloc[::100] # only every 100th to alleviate computational and storage burden
+df = df.iloc[::1000] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
+countries = df['Country'].values
 project_names = df['Name'].values
 lats_plants = df['Latitude'].values
 lons_plants = df['Longitude'].values
@@ -104,7 +106,7 @@ manufacturers = df['Manufacturer'].values
 turbine_types = df['Turbine'].values
 hub_heights = df['Hub height'].values
 numbers_of_turbines = df['Number of turbines']
-capacities = df['Total power'].values
+capacities = df['Total power'].values / 1e3 # kW to MW as the model has been trained on and the capacity scaler has been fitted
 developers = df['Developer'].values
 operators = df['Operator'].values
 owners = df['Owner'].values
@@ -112,10 +114,7 @@ commissioning_dates = df['Commissioning date'].values
 ages_months = df['Ages months'].values
 commissioning_date_statuses = df['Commissioning date status'].values
 hub_height_statuses = df['Hub height status'].values
-
 number_wpps = len(ids)
-
-from sklearn.preprocessing import OneHotEncoder
 
 # Lade die gespeicherte Reihenfolge der Turbinentypen
 known_turbine_types = np.load("turbine_types_order.npy")
@@ -128,7 +127,7 @@ hub_height_max = math.ceil(1.1 * df['Hub height'].max())
 commissioning_years = df['Commissioning date'].str.split('/').str[0].astype(int)
 min_year = commissioning_years.min()
 max_year = commissioning_years.max()
-min_capacity = capacities.min()
+min_capacity = 0
 max_capacity = capacities.max()
 
 # Lade den Scaler
@@ -136,7 +135,7 @@ scalers = joblib.load("scalers.pkl")
 
 # Wende sie auf neue Daten an
 scaled_ages_months = scalers["ages"].transform(ages_months.reshape(-1, 1)).flatten()
-scaled_capacities = scalers["capacities"].transform(capacities.reshape(-1, 1)).flatten()
+scaled_capacities = scalers["capacities"].transform((capacities).reshape(-1, 1)).flatten()
 scaled_hub_heights = scalers["hub_heights"].transform(hub_heights.reshape(-1, 1)).flatten()
 
 class MLP(nn.Module):
@@ -185,7 +184,7 @@ class MLP(nn.Module):
     
 # Lade die Metadaten
 metadata_path = "model_metadata.pth"
-metadata = torch.load(metadata_path)
+metadata = torch.load(metadata_path, weights_only=True)
 
 # Initialisiere das Modell
 input_size = metadata["input_size"]
@@ -253,7 +252,7 @@ app_ui = ui.page_navbar(
                 ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2),
                 ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1),
                 ui.input_slider("commissioning_date_month", "Commissioning Date (Month)", min=1, max=12, value=6, step=1),
-                ui.input_slider("capacity", "Capacity (kW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2),
+                ui.input_slider("capacity", "Capacity (MW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2),
                 ui.tags.br(),
                 ui.input_file("upload_file", "Contribute data for this configuration", accept=[".xlsx"]),
                 ui.input_action_link("download_example", "Download Example File")
@@ -273,16 +272,19 @@ app_ui = ui.page_navbar(
     ui.nav_panel(
         "Documentation",
         ui.h3("Wind Power Forecast Application"),
-        ui.p(
-            "This web application visualises wind power production forecasts for wind power plants across Europe.\n"
-            "Users can view wind plant information, forecasted wind speeds, and production values on an interactive map.\n"
-            "Each wind plant can be customised by selecting its attributes, and predictions are displayed based on input parameters.\n"
-            "All given times are in Central European Time (UTC+1), please consider this especially, when contributing your own data.\n"
-            "The application is built using Python, Shiny, and Jupyter notebooks.\n"
-            "The model is trained on a dataset of wind power plants in Europe and uses weather forecast data from the European Centre for Medium-Range Weather Forecasts (ECMWF).\n"
-            "The model is a simple Multi-Layer Perceptron (MLP) with four hidden layers and ReLU activation functions.\n"
-            "Where the hub heigh is missing, the mean value of the wind power plants in the database is assumed to calculate the forecast.\n"
-            "Where the commissioning date is missing entirely, an estimated value of 2010/06 is assumed, where the month is missing, 06 is assumed.\n"
+        ui.HTML(
+            "This web application visualises wind power production forecasts for wind power plants across Europe.<br>"
+            "Users can view wind plant information, forecasted wind speeds, and production values on an interactive map.<br>"
+            "Each wind plant can be customised by selecting its attributes, and predictions are displayed based on input parameters.<br>"
+            "All given times are in Central European Time (UTC+1), please consider this especially, when contributing your own data.<br>"
+            "The application is built using Python, Shiny, and Jupyter notebooks.<br>"
+            "The model is trained on a dataset of wind power plants in Europe and uses weather forecast data from the European Centre for Medium-Range Weather Forecasts (ECMWF).<br>"
+            "The model is trained on the following features: Turbine Type, Hub Height, Capacity, Age, and Wind Speed.<br>"
+            "The model is a simple Multi-Layer Perceptron (MLP) with four hidden layers and ReLU activation functions.<br>"
+            "Where the hub heigh is missing, the mean value of the wind power plants in the database is assumed to calculate the forecast.<br>"
+            "Where the commissioning date is missing entirely, an estimated value of 2010/06 is assumed, where the month is missing, 06 is assumed.<br>"
+            "Where the turbine type is new, nan is auto-selected in the dropdown menu to generate the forecast.<br>"
+            "Please contribute to ameliorate the model, taking into account the time zone and hand in the production values in kW (see example file).<br>"
         )
     ),
     ui.head_content(
@@ -313,16 +315,18 @@ def server(input, output, session):
     owner = reactive.Value(None)
     commissioning_date_status = reactive.Value(None)
     hub_height_status = reactive.Value(None)
+    country = reactive.Value(None)
 
     is_programmatic_change = reactive.Value(False)
 
     @reactive.effect
     @reactive.event(input.entire_forecast)
     def entire_forecast_function():
-        # Setzen des Flags: Änderungen sind programmatisch
-        is_programmatic_change.set(True)
 
         id = input.entire_forecast()['id']
+        
+        # Setzen des Flags: Änderungen sind programmatisch
+        is_programmatic_change.set(True)
 
         index = list(ids).index(id)
 
@@ -332,6 +336,7 @@ def server(input, output, session):
         owner.set(owners[index])
         commissioning_date_status.set(commissioning_date_statuses[index])
         hub_height_status.set(hub_height_statuses[index])
+        country.set(countries[index])
 
         # Parameter extrahieren
         lat = lats_plants[index]
@@ -371,11 +376,11 @@ def server(input, output, session):
             
             popup_content = HTML(
                 f"<strong>Project Name:</strong> {name}<br>"
-                f"<strong>Capacity:</strong> {capacity} kW<br>"
+                f"<strong>Capacity:</strong> {capacity} MW<br>"
                 f"<strong>Operator:</strong> {operator}<br>"
                 f"<strong>Wind speed forecast:</strong> select forecast step<br>"
                 f"<strong>Production forecast:</strong> select forecast step<br>"
-                f"<button onclick=\"Shiny.setInputValue(\'entire_forecast\', {{id: {id}}})\">Entire Forecast</button>"
+                f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
             )
 
             marker = Marker(
@@ -404,7 +409,6 @@ def server(input, output, session):
             spatial_interpolator = interp2d(lons, lats, total_selection_interpol[step_index], kind='cubic')
             wind_speeds_at_points = np.array([spatial_interpolator(lon, lat)[0] for lon, lat in zip(lons_plants, lats_plants)])
             scaled_wind_speeds_at_points = scalers["winds"].transform(wind_speeds_at_points.reshape(-1, 1)).flatten()
-            #wind_speeds_at_points = np.nan_to_num(wind_speeds_at_points, nan=0.0) # later: remove WPPs with nan values for wind, i. e. at the edge of Europe
 
             all_input_features = np.hstack([
                 turbine_types_onehot,
@@ -423,11 +427,11 @@ def server(input, output, session):
             for marker, name, capacity, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, operators, wind_speeds_at_points, predictions, ids):
                 marker.popup.value = \
                     f"<strong>Project Name:</strong> {name}<br>"\
-                    f"<strong>Capacity:</strong> {capacity} kW<br>"\
+                    f"<strong>Capacity:</strong> {capacity} MW<br>"\
                     f"<strong>Operator:</strong> {operator}<br>"\
                     f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
-                    f"<strong>Production forecast:</strong> {prediction:.2f} kW<br>"\
-                    f"<button onclick=\"Shiny.setInputValue(\'entire_forecast\', {{id: {id}}})\">Entire Forecast</button>"
+                    f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
+                    f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}}})\">Entire Forecast</button>"
                 
             # Prepare heatmap data for "operating" wind plants
             heatmap_data = [(lat, lon, prod) for lat, lon, prod in zip(lats_plants, lons_plants, predictions)]
@@ -508,6 +512,7 @@ def server(input, output, session):
     def observe_slider_changes():
         # Überspringen, wenn Änderungen programmatisch sind
         if is_programmatic_change.get():
+            is_programmatic_change.set(False)
             return
         
         # reset reactive variables
@@ -516,6 +521,7 @@ def server(input, output, session):
         owner.set(None)
         commissioning_date_status.set(None)
         hub_height_status.set(None)
+        country.set(None)
 
         # display regular elements
         time_series.set(None) # calls output_graph function
@@ -554,13 +560,14 @@ def server(input, output, session):
         summary_html = (
             f"<b>Turbine Configuration</b><br><br>"
             f"<b>Project Name:</b> {project_name.get()}<br>"
+            f"<b>Country:</b> {country.get()}<br>"
             f"<b>Operator:</b> {operator.get()}<br>"
             f"<b>Owner:</b> {owner.get()}<br>"
             f"<b>Location:</b> ({lat_plant}, {lon_plant})<br>"
             f"<b>Type:</b> {turbine_type}<br>"
             f"<b>Hub Height:</b> {hub_height_display}<br>"
             f"<b>Commissioning Date:</b> {commissioning_date_display}<br>"
-            f"<b>Capacity:</b> {capacity} kW<br>"
+            f"<b>Capacity:</b> {capacity} MW<br>"
         )
         return ui.HTML(summary_html)
 
@@ -570,16 +577,16 @@ def server(input, output, session):
     def output_graph():
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.set_xlabel("Date")
-        ax.set_ylabel("Production (kW)")
+        ax.set_ylabel("Production (MW)")
 
         # Add horizontal dashed line for capacity
         capacity = input.capacity()
-        ax.axhline(y=capacity, color='gray', linestyle='--', label=f"Capacity ({capacity} kW)")
+        ax.axhline(y=capacity, color='gray', linestyle='--', label=f"Capacity ({capacity} MW)")
 
         time_series_data = time_series.get()
 
         if time_series_data is not None and not time_series_data.empty: # check if user has uploaded time series to plot it
-            ax.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1], label="Historical Production (kW)")
+            ax.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1] / 1e3, label="Historical Production (MW)")
             ax.set_title("Historical Wind Turbine Production")
         else: # Retrieve inputs
             lat_plant = input.lat()
@@ -619,6 +626,8 @@ def server(input, output, session):
                 wind_speed_column
             ])
 
+            np.save("all_input_features.npy", all_input_features)
+
             input_tensor = torch.tensor(all_input_features, dtype=torch.float32)
 
             with torch.no_grad():
@@ -626,7 +635,8 @@ def server(input, output, session):
 
             # Store the forecast data in the reactive `forecast_data`
             forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions})
-            ax.plot(valid_times_interpol, predictions, label="Predicted Production (kW)")
+            ax.plot(valid_times_interpol, predictions, label="Predicted Production (MW)")
+            ax.set_ylim(bottom=0)
             ax.set_title("Forecasted Wind Turbine Production")
 
         ax.legend()
@@ -664,7 +674,7 @@ def server(input, output, session):
             ["Type", turbine_type],
             ["Hub Height (m)", round(hub_height, 2) if hub_height_status.get() == 0 else "nan"],
             ["Commissioning Date", f"{commissioning_date_year}/{commissioning_date_month}" if commissioning_date_status.get() == 0 else (str(commissioning_date_year) if commissioning_date_status.get() == 1 else "nan")],
-            ["Capacity (kW)", capacity]
+            ["Capacity (MW)", capacity]
         ]
 
         # Populate the workbook
@@ -675,7 +685,7 @@ def server(input, output, session):
         ws_forecast = wb.create_sheet("Production Forecast")
 
         # Add headers for date, wind speed, and production
-        ws_forecast.append(["Date", "Wind Speed (m/s)", "Production (kW)"])
+        ws_forecast.append(["Date", "Wind Speed (m/s)", "Production (MW)"])
 
         # Add production data per time step
         for time, wind_speed, production in zip(valid_times_interpol, wind_speeds, productions):
