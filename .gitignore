@@ -1,5 +1,6 @@
 # no spaces, not even in folder name!
 __pycache__
+.github\workflows
 data
 images
 QGIS_Project
