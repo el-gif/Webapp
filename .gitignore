@@ -1,6 +1,7 @@
 # no spaces, not even in folder name!
 __pycache__
 data
+images
 QGIS_Project
 qgis2web_Test_Project
 runs
