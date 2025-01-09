@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 import time
-starttime = time.time()
 import math
 import joblib
 import torch
@@ -96,6 +95,7 @@ valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
 df = pd.read_parquet("data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
+df = df[df["Status"] == "Production"]
 df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
 countries = df['Country'].values
@@ -229,11 +229,11 @@ example_production = example_data['Production (kW)']
 
 app_ui = ui.page_navbar(
     ui.nav_panel(
-        "WPP database",
+        "Spatial Forecast",
         output_widget("map")
     ),
     ui.nav_panel(
-        "Customise WPP",
+        "Temporal Forecast",
         ui.row(
             ui.column(2,  # Left column for input fields
                 ui.input_numeric("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2),
@@ -275,6 +275,7 @@ app_ui = ui.page_navbar(
             "Where the commissioning date is missing entirely, an estimated value of 2010/06 is assumed, where the month is missing, 06 is assumed.<br>"
             "Where the turbine type is new, nan is auto-selected in the dropdown menu to generate the forecast.<br>"
             "Please contribute to ameliorate the model, taking into account the time zone and hand in the production values in kW (see example file).<br>"
+            "When setting extreme values for the input features, please consider that the model has barely been trained on such values and that the results will be less credible."
         )
     ),
     ui.head_content(
@@ -410,7 +411,9 @@ def server(input, output, session):
             input_tensor = torch.tensor(all_input_features, dtype=torch.float32)
 
             with torch.no_grad():
-                predictions = model(input_tensor).numpy().flatten() * capacities
+                predictions = np.minimum(model(input_tensor).numpy().flatten() * capacities, capacities)
+
+            predictions[(predictions < 0) | (np.array(wind_speeds_at_points) > 25)] = 0
             
             # Update marker pop-ups with production values
             for marker, name, capacity, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, operators, wind_speeds_at_points, predictions, ids):
@@ -467,7 +470,7 @@ def server(input, output, session):
                 button_status.set('contribute')
             except Exception as e:
                 # Send feedback to UI if file format is incorrect
-                ui.notification_show("Wrong file format, please download the example file for orientation.", duration=None)
+                ui.notification_show("Wrong file / content format, please download the example file for orientation.", duration=None)
     
     # Generate example file for download
     @reactive.Effect
@@ -617,7 +620,9 @@ def server(input, output, session):
             input_tensor = torch.tensor(all_input_features, dtype=torch.float32)
 
             with torch.no_grad():
-                predictions = model(input_tensor).numpy().flatten() * capacity
+                predictions = np.minimum(model(input_tensor).numpy().flatten() * capacity, np.full(num_steps, capacity))
+
+            predictions[(predictions < 0) | (np.array(wind_speeds_at_point) > 25)] = 0
 
             # Store the forecast data in the reactive `forecast_data`
             forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions})
