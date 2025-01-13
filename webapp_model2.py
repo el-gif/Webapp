@@ -12,7 +12,6 @@ import xarray as xr
 from scipy.interpolate import interp2d  # pip install scipy==1.13.1, interp2d much faster than RegularGridInterpolator, even if deprecated
 import base64
 from ecmwf.opendata import Client
-from branca.colormap import linear
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -22,6 +21,8 @@ import joblib
 import torch
 import torch.nn as nn
 from sklearn.preprocessing import OneHotEncoder
+from datetime import datetime
+import matplotlib.dates as mdates
 
 # Define initial variables
 initial = 0
@@ -227,6 +228,10 @@ example_data = pd.read_parquet("data/production_history/Example/example_time_ser
 example_dates = example_data['Date']
 example_production = example_data['Production (kW)']
 
+# Read the HTML documentation file
+with open("documentation.html", "r", encoding="utf-8") as f:
+    documentation_html = f.read()
+
 app_ui = ui.page_navbar(
     ui.nav_panel(
         "Spatial Forecast",
@@ -236,13 +241,13 @@ app_ui = ui.page_navbar(
         "Temporal Forecast",
         ui.row(
             ui.column(2,  # Left column for input fields
-                ui.input_numeric("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2),
-                ui.input_numeric("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2),
+                ui.input_slider("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2, step=0.05),
+                ui.input_slider("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.05),
                 ui.input_select("turbine_type", "Turbine Type", choices=known_turbine_types.tolist(), selected=known_turbine_types[0]),
-                ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2),
+                ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.5),
                 ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1),
                 ui.input_slider("commissioning_date_month", "Commissioning Date (Month)", min=1, max=12, value=6, step=1),
-                ui.input_slider("capacity", "Capacity (MW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2),
+                ui.input_slider("capacity", "Capacity (MW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2, step=0.5),
                 ui.tags.br(),
                 ui.input_file("upload_file", "Contribute data for this configuration", accept=[".xlsx"]),
                 ui.input_action_link("download_example", "Download Example File")
@@ -261,22 +266,7 @@ app_ui = ui.page_navbar(
     ),
     ui.nav_panel(
         "Documentation",
-        ui.h3("Wind Power Forecast Application"),
-        ui.HTML(
-            "This web application visualises wind power production forecasts for wind power plants across Europe.<br>"
-            "Users can view wind plant information, forecasted wind speeds, and production values on an interactive map.<br>"
-            "Each wind plant can be customised by selecting its attributes, and predictions are displayed based on input parameters.<br>"
-            "All given times are in Central European Time (UTC+1), please consider this especially, when contributing your own data.<br>"
-            "The application is built using Python, Shiny, and Jupyter notebooks.<br>"
-            "The model is trained on a dataset of wind power plants in Europe and uses weather forecast data from the European Centre for Medium-Range Weather Forecasts (ECMWF).<br>"
-            "The model is trained on the following features: Turbine Type, Hub Height, Capacity, Age, and Wind Speed.<br>"
-            "The model is a simple Multi-Layer Perceptron (MLP) with four hidden layers and ReLU activation functions.<br>"
-            "Where the hub heigh is missing, the mean value of the wind power plants in the database is assumed to calculate the forecast.<br>"
-            "Where the commissioning date is missing entirely, an estimated value of 2010/06 is assumed, where the month is missing, 06 is assumed.<br>"
-            "Where the turbine type is new, nan is auto-selected in the dropdown menu to generate the forecast.<br>"
-            "Please contribute to ameliorate the model, taking into account the time zone and hand in the production values in kW (see example file).<br>"
-            "When setting extreme values for the input features, please consider that the model has barely been trained on such values and that the results will be less credible."
-        )
+        ui.HTML(documentation_html)
     ),
     ui.head_content(
         ui.tags.script("""
@@ -363,11 +353,12 @@ def server(input, output, session):
         )
 
         markers = []
-        for name, capacity, operator, id, lat, lon in zip(project_names, capacities, operators, ids, lats_plants, lons_plants):
+        for name, capacity, number_of_turbines, operator, id, lat, lon in zip(project_names, capacities, numbers_of_turbines, operators, ids, lats_plants, lons_plants):
             
             popup_content = HTML(
                 f"<strong>Project Name:</strong> {name}<br>"
                 f"<strong>Capacity:</strong> {capacity} MW<br>"
+                f"<strong>Number of turbines:</strong> {number_of_turbines} MW<br>"
                 f"<strong>Operator:</strong> {operator}<br>"
                 f"<strong>Wind speed forecast:</strong> select forecast step<br>"
                 f"<strong>Production forecast:</strong> select forecast step<br>"
@@ -416,10 +407,11 @@ def server(input, output, session):
             predictions[(predictions < 0) | (np.array(wind_speeds_at_points) > 25)] = 0
             
             # Update marker pop-ups with production values
-            for marker, name, capacity, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, operators, wind_speeds_at_points, predictions, ids):
+            for marker, name, capacity, number_of_turbines, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, numbers_of_turbines, operators, wind_speeds_at_points, predictions, ids):
                 marker.popup.value = \
                     f"<strong>Project Name:</strong> {name}<br>"\
                     f"<strong>Capacity:</strong> {capacity} MW<br>"\
+                    f"<strong>Number of Turbines:</strong> {number_of_turbines}<br>"\
                     f"<strong>Operator:</strong> {operator}<br>"\
                     f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
                     f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
@@ -463,14 +455,42 @@ def server(input, output, session):
         if input.upload_file() is not None:
             try:
                 file = input.upload_file()[0]['datapath']
+
+                # Check if the file is empty
+                if os.path.getsize(file) == 0:
+                    ui.notification_show("File is empty. Please check the file and try again.", duration=None)
+                    return
+
                 # Attempt to read Excel file with specified columns
                 time_series_data = pd.read_excel(file)
-                time_series.set(time_series_data) # calls output_graph function
+
+                # Check if DataFrame is empty
+                if time_series_data.empty:
+                    ui.notification_show("The Excel file contains no data. Please provide a valid time series.", duration=None)
+                    return
+
+                required_columns = ["Date", "Production (MW)"]
+                if not all(col in time_series_data.columns for col in required_columns):
+                    ui.notification_show(f"The Excel file is missing required columns. Please ensure it includes {required_columns}.", duration=None)
+                    return
+
+                time_series.set(time_series_data)  # Calls output_graph function
                 ui.update_action_button("action_button", label="Contribute Data")
                 button_status.set('contribute')
+
+            except FileNotFoundError:
+                ui.notification_show("File not found. Please upload a valid file.", duration=None)
+
+            except ValueError as ve:
+                ui.notification_show(f"Value error: {str(ve)}. Ensure the file format is correct.", duration=None)
+
+            except pd.errors.ExcelFileError:
+                ui.notification_show("The file format is not recognized as an Excel file. Please upload a valid .xlsx or .xls file.", duration=None)
+
             except Exception as e:
-                # Send feedback to UI if file format is incorrect
-                ui.notification_show("Wrong file / content format, please download the example file for orientation.", duration=None)
+                # Generic catch-all for any other errors
+                ui.notification_show(f"An unexpected error occurred: {str(e)}. Please try again.", duration=None)
+
     
     # Generate example file for download
     @reactive.Effect
@@ -567,19 +587,24 @@ def server(input, output, session):
     @output
     @render.plot
     def output_graph():
-        fig, ax = plt.subplots(figsize=(8, 4))
-        ax.set_xlabel("Date")
-        ax.set_ylabel("Production (MW)")
+        fig, ax1 = plt.subplots(figsize=(8, 4))
+        ax1.set_xlabel("Date")
+        ax1.set_ylabel("Production (MW)")
 
         # Add horizontal dashed line for capacity
         capacity = input.capacity()
-        ax.axhline(y=capacity, color='gray', linestyle='--', label=f"Capacity ({capacity} MW)")
+        ax1.axhline(y=capacity, color='gray', linestyle='--', label=f"Capacity ({capacity} MW)")
 
         time_series_data = time_series.get()
 
         if time_series_data is not None and not time_series_data.empty: # check if user has uploaded time series to plot it
-            ax.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1] / 1e3, label="Historical Production (MW)")
-            ax.set_title("Historical Wind Turbine Production")
+            ax1.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1] / 1e3, label="Uploaded Time Series (MW)", color='orange')
+            ax1.set_title("Historical Wind Turbine Production")
+
+            ax2 = ax1.twinx()
+            y_min, y_max = ax1.get_ylim()
+            ax2.set_ylim(y_min / capacity, y_max / capacity)
+            ax2.set_ylabel("Capacity Factor")
         else: # Retrieve inputs
             lat_plant = input.lat()
             lon_plant = input.lon()
@@ -615,23 +640,32 @@ def server(input, output, session):
                 wind_speed_column
             ])
 
-            np.save("all_input_features.npy", all_input_features)
-
             input_tensor = torch.tensor(all_input_features, dtype=torch.float32)
 
             with torch.no_grad():
-                predictions = np.minimum(model(input_tensor).numpy().flatten() * capacity, np.full(num_steps, capacity))
+                predictions_cap_factor = np.minimum(model(input_tensor).numpy().flatten(), np.full(num_steps, 1))
 
-            predictions[(predictions < 0) | (np.array(wind_speeds_at_point) > 25)] = 0
+            predictions_cap_factor[(predictions_cap_factor < 0) | (np.array(wind_speeds_at_point) > 25)] = 0
+            predictions_power = predictions_cap_factor * capacity
 
             # Store the forecast data in the reactive `forecast_data`
-            forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions})
-            ax.plot(valid_times_interpol, predictions, label="Predicted Production (MW)")
-            ax.set_ylim(bottom=0)
-            ax.set_title("Forecasted Wind Turbine Production")
+            forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions_power})
+            ax1.plot(valid_times_interpol, predictions_power, label="Predicted Production (MW)", color='blue')
+            ax1.set_ylim(bottom=0)
+            ax1.set_title("Forecasted Wind Turbine Production")
 
-        ax.legend()
-        ax.grid(True)
+            ax2 = ax1.twinx()
+            y_min, y_max = ax1.get_ylim()
+            ax2.set_ylim(y_min / capacity, y_max / capacity)
+            ax2.set_ylabel("Capacity Factor")
+
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))  # Format: "YYYY/MM/DD HH:MM"
+
+        # Rotate the labels for better fit
+        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+        ax1.legend()
+        ax1.grid(True)
         plt.tight_layout()
         return fig  # Returning the figure will embed it in the app
 
@@ -708,12 +742,38 @@ def server(input, output, session):
             })
         
         else: # button_status.get() == "contribute"
+            time_series_data = time_series.get()
+
+            # Notify the user that the file is being saved
             ui.notification_show(
                 "Thank you for uploading your time series. It will be checked for plausibility and possibly used to improve the model at the next training.",
                 duration=None
             )
-            # save time_series somewhere until training
-            time_series.set(None)
+
+            # Metadata from input sliders
+            metadata = {
+                "Latitude": input.lat(),
+                "Longitude": input.lon(),
+                "Turbine Type": input.turbine_type(),
+                "Hub Height": input.hub_height(),
+                "Commissioning Year": input.commissioning_date_year(),
+                "Commissioning Month": input.commissioning_date_month(),
+                "Capacity (MW)": input.capacity(),
+            }
+
+            # Save folder and timestamp
+            save_dir = "crowdsourced_data"
+            os.makedirs(save_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = os.path.join(save_dir, f"time_series_{timestamp}.xlsx")
+
+            # Combine metadata and time series data into a single DataFrame
+            metadata_df = pd.DataFrame([metadata])  # Convert metadata to DataFrame
+
+            # Save metadata and time series data to the same Excel file
+            with pd.ExcelWriter(save_path, engine='xlsxwriter') as writer:
+                metadata_df.to_excel(writer, sheet_name="Metadata", index=False)
+                time_series_data.to_excel(writer, sheet_name="Time Series", index=False)
 
 # Define absolute path to `www` folder
 path_www = os.path.join(os.path.dirname(__file__), "www")
