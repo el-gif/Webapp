@@ -1,0 +1,35 @@
+Tue Jan 14 08:44:39 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 565.57.01              Driver Version: 565.57.01      CUDA Version: 12.7     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA L40S                    On  |   00000000:CC:00.0 Off |                    0 |
+| N/A   49C    P8             39W /  350W |       1MiB /  46068MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+Job submitted at: Tue 14 Jan 08:44:39 GMT 2025
+Job started on node cx3-20-0.cx3.hpc.ic.ac.uk at: Tue 14 Jan 08:44:39 GMT 2025
+Execution started at: Tue 14 Jan 08:44:49 GMT 2025
+Execution finished at: Tue 14 Jan 12:28:09 GMT 2025
+Job completed on node cx3-20-0.cx3.hpc.ic.ac.uk at: Tue 14 Jan 12:28:09 GMT 2025
+Job finished at: Tue 14 Jan 12:28:09 GMT 2025
+
+====================================
+CPU Time used: 03:39:41
+CPU Percent: 99%
+Memory usage: 5886280kb
+Approx Power usage: 0.0438
+Walltime usage: 03:43:32
+
+====================================

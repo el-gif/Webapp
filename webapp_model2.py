@@ -96,7 +96,6 @@ valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
 df = pd.read_parquet("data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
-df = df[df["Status"] == "Production"]
 df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
 countries = df['Country'].values
@@ -106,7 +105,7 @@ lons_plants = df['Longitude'].values
 manufacturers = df['Manufacturer'].values
 turbine_types = df['Turbine'].values
 hub_heights = df['Hub height'].values
-numbers_of_turbines = df['Number of turbines']
+numbers_of_turbines = df['Number of turbines'].values
 capacities = df['Total power'].values / 1e3 # kW to MW as the model has been trained on and the capacity scaler has been fitted
 developers = df['Developer'].values
 operators = df['Operator'].values
@@ -241,13 +240,13 @@ app_ui = ui.page_navbar(
         "Temporal Forecast",
         ui.row(
             ui.column(2,  # Left column for input fields
-                ui.input_slider("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2, step=0.05),
-                ui.input_slider("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.05),
+                ui.input_slider("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2, step=0.01),
+                ui.input_slider("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.01),
                 ui.input_select("turbine_type", "Turbine Type", choices=known_turbine_types.tolist(), selected=known_turbine_types[0]),
-                ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.5),
+                ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.1),
                 ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1),
                 ui.input_slider("commissioning_date_month", "Commissioning Date (Month)", min=1, max=12, value=6, step=1),
-                ui.input_slider("capacity", "Capacity (MW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2, step=0.5),
+                ui.input_slider("capacity", "Capacity (MW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2, step=0.01),
                 ui.tags.br(),
                 ui.input_file("upload_file", "Contribute data for this configuration", accept=[".xlsx"]),
                 ui.input_action_link("download_example", "Download Example File")
@@ -297,6 +296,7 @@ def server(input, output, session):
     commissioning_date_status = reactive.Value(None)
     hub_height_status = reactive.Value(None)
     country = reactive.Value(None)
+    number_turbines = reactive.Value(None)
 
     is_programmatic_change = reactive.Value(False)
 
@@ -318,6 +318,7 @@ def server(input, output, session):
         commissioning_date_status.set(commissioning_date_statuses[index])
         hub_height_status.set(hub_height_statuses[index])
         country.set(countries[index])
+        number_turbines.set(numbers_of_turbines[index])
 
         # Parameter extrahieren
         lat = lats_plants[index]
@@ -330,19 +331,21 @@ def server(input, output, session):
         commissioning_date_year = int(commissioning_date_year)
         commissioning_date_month = int(commissioning_date_month)
 
-        # Update der Eingabefelder mit neuen Werten vor Wechseln des Tabs
-        ui.update_numeric("lat", value=lat)
-        ui.update_numeric("lon", value=lon)
+        # Update der Eingabefelder mit neuen Werten vor Wechseln des Tabs.
+        # Attention: the rounding must exactly correspond to the steps, the sliders have been initialised with.
+        # Otherwise, a rounding will occur automatically, and the function observe_slider_changes() is called an additional time,
+        # while is_programmatic_change is already false --> output_summary will be reset --> to avoid
+        ui.update_slider("lat", value=round(lat, 2))
+        ui.update_slider("lon", value=round(lon, 2))
         ui.update_select("turbine_type", selected=turbine_type)
-        ui.update_slider("hub_height", value=hub_height)
+        ui.update_slider("hub_height", value=round(hub_height, 1))
         ui.update_slider("commissioning_date_year", value=commissioning_date_year)
         ui.update_slider("commissioning_date_month", value=commissioning_date_month)
-        ui.update_slider("capacity", value=capacity)
+        ui.update_slider("capacity", value=(capacity, 2))
 
         # Wechsel zu "Customise WPP" Tab
         ui.update_navs("navbar_selected", selected="customise_WPP")
 
-    @output
     @render_widget
     def map():
         m = Map(
@@ -358,11 +361,11 @@ def server(input, output, session):
             popup_content = HTML(
                 f"<strong>Project Name:</strong> {name}<br>"
                 f"<strong>Capacity:</strong> {capacity} MW<br>"
-                f"<strong>Number of turbines:</strong> {number_of_turbines} MW<br>"
+                f"<strong>Number of turbines:</strong> {number_of_turbines}<br>"
                 f"<strong>Operator:</strong> {operator}<br>"
                 f"<strong>Wind speed forecast:</strong> select forecast step<br>"
                 f"<strong>Production forecast:</strong> select forecast step<br>"
-                f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
+                f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
             )
 
             marker = Marker(
@@ -404,7 +407,7 @@ def server(input, output, session):
             with torch.no_grad():
                 predictions = np.minimum(model(input_tensor).numpy().flatten() * capacities, capacities)
 
-            predictions[(predictions < 0) | (np.array(wind_speeds_at_points) > 25)] = 0
+            predictions[(predictions < 0)] = 0
             
             # Update marker pop-ups with production values
             for marker, name, capacity, number_of_turbines, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, numbers_of_turbines, operators, wind_speeds_at_points, predictions, ids):
@@ -415,7 +418,7 @@ def server(input, output, session):
                     f"<strong>Operator:</strong> {operator}<br>"\
                     f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
                     f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
-                    f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}}})\">Entire Forecast</button>"
+                    f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
                 
             # Prepare heatmap data for "operating" wind plants
             heatmap_data = [(lat, lon, prod) for lat, lon, prod in zip(lats_plants, lons_plants, predictions)]
@@ -424,7 +427,7 @@ def server(input, output, session):
             for layer in m.layers:
                 if isinstance(layer, Heatmap):
                     m.remove(layer)
-            heatmap = Heatmap(locations=heatmap_data, radius=5, blur=5, max_zoom=10)
+            heatmap = Heatmap(locations=heatmap_data, radius=10, blur=10, max_zoom=10)
             m.add(heatmap)
         
         global initial
@@ -449,7 +452,7 @@ def server(input, output, session):
     button_status = reactive.Value("download")
 
     # Function to handle file upload
-    @reactive.Effect
+    @reactive.effect
     @reactive.event(input.upload_file)
     def handle_file_upload():
         if input.upload_file() is not None:
@@ -493,7 +496,7 @@ def server(input, output, session):
 
     
     # Generate example file for download
-    @reactive.Effect
+    @reactive.effect
     @reactive.event(input.download_example)
     async def generate_example_file():
         # Create example workbook
@@ -519,14 +522,16 @@ def server(input, output, session):
         })
 
     # Observing slider changes to revert to forecast view
-    @reactive.Effect
+    @reactive.effect
     @reactive.event(input.lat, input.lon, input.turbine_type, input.hub_height, input.commissioning_date_year, input.commissioning_date_month, input.capacity)
     def observe_slider_changes():
         # Überspringen, wenn Änderungen programmatisch sind
         if is_programmatic_change.get():
-            is_programmatic_change.set(False)
+            print(input.lat(), input.lon(), input.turbine_type(), input.hub_height(), input.commissioning_date_year(), input.commissioning_date_month(), input.capacity())
+            is_programmatic_change.set(None)
             return
         
+        print(input.lat(), input.lon(), input.turbine_type(), input.hub_height(), input.commissioning_date_year(), input.commissioning_date_month(), input.capacity())
         # reset reactive variables
         project_name.set(None)
         operator.set(None)
@@ -534,17 +539,14 @@ def server(input, output, session):
         commissioning_date_status.set(None)
         hub_height_status.set(None)
         country.set(None)
+        number_turbines.set(None)
 
         # display regular elements
         time_series.set(None) # calls output_graph function
         ui.update_action_button("action_button", label="Download Forecast")
         button_status.set('download')
 
-        # Zurücksetzen des Flags
-        is_programmatic_change.set(False)
-
     # Capture user input and display configuration summary
-    @output
     @render.text
     def output_summary():
         # Capture inputs
@@ -573,18 +575,19 @@ def server(input, output, session):
             f"<b>Turbine Configuration</b><br><br>"
             f"<b>Project Name:</b> {project_name.get()}<br>"
             f"<b>Country:</b> {country.get()}<br>"
+            f"<b>Capacity:</b> {capacity} MW<br>"
+            f"<b>Number of Turbines:</b> {number_turbines.get()}<br>"
             f"<b>Operator:</b> {operator.get()}<br>"
             f"<b>Owner:</b> {owner.get()}<br>"
-            f"<b>Location:</b> ({lat_plant}, {lon_plant})<br>"
+            f"<b>Location:</b> ({lat_plant:.2f}, {lon_plant:.2f})<br>"
             f"<b>Type:</b> {turbine_type}<br>"
             f"<b>Hub Height:</b> {hub_height_display}<br>"
             f"<b>Commissioning Date:</b> {commissioning_date_display}<br>"
-            f"<b>Capacity:</b> {capacity} MW<br>"
+
         )
         return ui.HTML(summary_html)
 
     # Plot forecasted production over time
-    @output
     @render.plot
     def output_graph():
         fig, ax1 = plt.subplots(figsize=(8, 4))
@@ -645,7 +648,7 @@ def server(input, output, session):
             with torch.no_grad():
                 predictions_cap_factor = np.minimum(model(input_tensor).numpy().flatten(), np.full(num_steps, 1))
 
-            predictions_cap_factor[(predictions_cap_factor < 0) | (np.array(wind_speeds_at_point) > 25)] = 0
+            predictions_cap_factor[(predictions_cap_factor < 0)] = 0
             predictions_power = predictions_cap_factor * capacity
 
             # Store the forecast data in the reactive `forecast_data`
@@ -654,12 +657,16 @@ def server(input, output, session):
             ax1.set_ylim(bottom=0)
             ax1.set_title("Forecasted Wind Turbine Production")
 
+            # Add a red dotted vertical line at the current time
+            current_time = pd.Timestamp.now()  # or use a specific time if needed
+            ax1.axvline(x=current_time, color='red', linestyle='--', linewidth=1.5, label='Current Time')
+
             ax2 = ax1.twinx()
             y_min, y_max = ax1.get_ylim()
             ax2.set_ylim(y_min / capacity, y_max / capacity)
             ax2.set_ylabel("Capacity Factor")
 
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))  # Format: "YYYY/MM/DD HH:MM"
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))
 
         # Rotate the labels for better fit
         plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
@@ -693,6 +700,7 @@ def server(input, output, session):
         specs_data = [
             ["Specification", "Value"],
             ["Project Name", project_name.get()],
+            ["Number of Turbines", number_turbines.get()],
             ["Operator", operator.get()],
             ["Owner", owner.get()],
             ["Location", f"({lat_plant}, {lon_plant})"],
@@ -724,7 +732,7 @@ def server(input, output, session):
         return buffer.getvalue()
 
     # Function to trigger download on button click
-    @reactive.Effect
+    @reactive.effect
     @reactive.event(input.action_button)
     async def action():
         if button_status.get() == "download":
