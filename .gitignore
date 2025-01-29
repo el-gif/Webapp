@@ -2,6 +2,7 @@
 __pycache__
 .github\workflows
 data
+Excels
 images
 QGIS_Project
 qgis2web_Test_Project
