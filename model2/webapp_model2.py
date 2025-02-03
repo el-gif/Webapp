@@ -29,12 +29,6 @@ initial = 0
 lat_min, lat_max = 35, 72
 lon_min, lon_max = -25, 45
 
-# Path to the stored weather data
-wind_file = "../data/weather_forecast/data_europe.grib2"
-# Set time interval for updates (in seconds)
-time_threshold = 12 * 3600  # 12 hours in seconds (time for a new forecast to be issued)
-overwrite = 1  # force overwriting of data
-
 # Initialise ECMWF client
 client = Client(
     source="ecmwf",
@@ -59,7 +53,11 @@ else:
 #     210, 216, 222, 228, 234, 240
 # ]
 
-# Determine the latest available forecast based on the ECMWF dissemination schedule
+
+# Set time interval for updates (in seconds)
+overwrite = 0  # force overwriting of data
+
+# Determine the latest available forecast based on the ECMWF dissemination schedule https://confluence.ecmwf.int/display/DAC/Dissemination+schedule
 current_utc = datetime.datetime.now(datetime.timezone.utc)
 
 if current_utc.hour >= 21:
@@ -71,32 +69,39 @@ else:
 
 print(f"Latest available forecast run: {latest_run} UTC")
 
-# Function to check the age of the file, to avoid a cron-job, which is a paid feature on most Cloud Computing platforms
-def is_data_stale(wind_file, time_threshold):
-    if not os.path.exists(wind_file):
-        # File does not exist, data must be fetched
-        return True
-    # Determine the age of the file (in seconds since the last modification)
-    file_age = time.time() - os.path.getmtime(wind_file)
-    # Check if the file is older than the specified threshold
-    return file_age > time_threshold
+if latest_run == 0:
+    new_file = f"data/weather_forecast/data_europe_0.grib2"
+    old_file = f"data/weather_forecast/data_europe_12.grib2"
+else:
+    new_file = f"data/weather_forecast/data_europe_12.grib2"
+    old_file = f"data/weather_forecast/data_europe_0.grib2"
 
-if is_data_stale(wind_file, time_threshold) or overwrite:
-    print("Data is outdated, does not exist, or should be overwritten. Fetching new data.")
-    # Fetching API data since they are either missing or older than 10 hours
-    result = client.retrieve(  # retrieve data worldwide, because no area tag available (https://github.com/ecmwf/ecmwf-opendata, https://www.ecmwf.int/en/forecasts/datasets/open-data)
+# Check if the new forecast file is already available
+if os.path.exists(new_file) and overwrite == 0:
+    print(f"Latest forecast file ({new_file}) is already available. No download needed.")
+else:
+    # If the old file exists, delete it
+    if os.path.exists(old_file):
+        print(f"Old forecast file ({old_file}) found. Deleting...")
+        os.remove(old_file)
+        print("Old forecast file deleted.")
+
+    # Download the new forecast file
+    print(f"Downloading new forecast file: {new_file}")
+    
+    # Fetch the latest ECMWF forecast data
+    result = client.retrieve(
         type="fc",
         param=["100v", "100u"],  # U- and V-components of wind speed
-        target=wind_file,
-        time=latest_run,  # Forecast time
+        target=new_file,
+        time=latest_run,  # Use the latest available forecast run
         step=step_selection
     )
-    print("New data has been successfully fetched and saved.")
-else:
-    print("Data is current and will be used.")
+
+    print(f"New forecast file ({new_file}) successfully downloaded.")
 
 # Load the wind data (Grib2 file)
-ds = xr.open_dataset(wind_file, engine='cfgrib')
+ds = xr.open_dataset(new_file, engine='cfgrib')
 
 # Filter the data for Europe and extract relevant columns
 ds_filtered = ds.sel(latitude=slice(lat_max, lat_min), longitude=slice(lon_min, lon_max))
@@ -107,7 +112,7 @@ v = ds_filtered['v100'].values
 valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
-df = pd.read_parquet("../data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
+df = pd.read_parquet("data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
 df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
 countries = df['Country'].values
@@ -115,7 +120,7 @@ project_names = df['Name'].values
 lats_plants = df['Latitude'].values
 lons_plants = df['Longitude'].values
 manufacturers = df['Manufacturer'].values
-turbine_types = df['Turbine'].values
+turbine_types = df["Turbine"].replace(["nan", np.nan], "unknown").values
 hub_heights = df['Hub height'].values
 numbers_of_turbines = df['Number of turbines'].values
 capacities = df['Total power'].values / 1e3 # kW to MW as the model has been trained on and the capacity scaler has been fitted
@@ -129,10 +134,11 @@ hub_height_statuses = df['Hub height status'].values
 number_wpps = len(ids)
 
 # Lade die gespeicherte Reihenfolge der Turbinentypen
-known_turbine_types = np.load("parameters/turbine_types_order.npy")
-processed_turbine_types = [turbine if turbine in known_turbine_types else "nan" for turbine in turbine_types]
+known_turbine_types = np.load("model2/parameters/turbine_types_order.npy")
+selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown"])))
 encoder = OneHotEncoder(categories=[known_turbine_types], sparse_output=False)
-turbine_types_onehot = encoder.fit_transform(np.array(processed_turbine_types).reshape(-1, 1))
+encoder.fit_transform(np.array(known_turbine_types).reshape(-1, 1))
+encoder.fit(np.array(known_turbine_types).reshape(-1, 1))
 
 hub_height_min = math.floor(0.9 * df['Hub height'].min())
 hub_height_max = math.ceil(1.1 * df['Hub height'].max())
@@ -143,7 +149,7 @@ min_capacity = 0
 max_capacity = capacities.max()
 
 # Lade den Scaler
-scalers = joblib.load("parameters/scalers.pkl")
+scalers = joblib.load("model2/parameters/scalers.pkl")
 
 # Wende sie auf neue Daten an
 scaled_ages_months = scalers["ages"].transform(ages_months.reshape(-1, 1)).flatten()
@@ -152,50 +158,28 @@ scaled_hub_heights = scalers["hub_heights"].transform(hub_heights.reshape(-1, 1)
 import torch.nn as nn
 
 class MLP(nn.Module):
-    def __init__(self, input_size, use_dropout=False, dropout_rate=0.3, 
-                 use_batch_norm=False, activation_fn=nn.ReLU):
+    def __init__(self, input_size):
         super(MLP, self).__init__()
-
-        layers = []
-
-        # Erste Schicht
-        layers.append(nn.Linear(input_size, 256))
-        if use_batch_norm:
-            layers.append(nn.BatchNorm1d(256))
-        layers.append(activation_fn())
-
-        # Zweite Schicht
-        layers.append(nn.Linear(256, 128))
-        if use_batch_norm:
-            layers.append(nn.BatchNorm1d(128))
-        layers.append(activation_fn())
-
-        # Dritte Schicht
-        layers.append(nn.Linear(128, 64))
-        if use_batch_norm:
-            layers.append(nn.BatchNorm1d(64))
-        layers.append(activation_fn())
-
-        # Dropout nach der letzten versteckten Schicht (optional)
-        if use_dropout:
-            layers.append(nn.Dropout(dropout_rate))
-
-        # Ausgabeschicht
-        layers.append(nn.Linear(64, 1))
-
-        # Modell zusammenstellen
-        self.model = nn.Sequential(*layers)
+        self.fc1 = nn.Linear(input_size, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, 1)
+        self.relu1 = nn.ReLU()
+        self.relu2 = nn.ReLU()
+        self.relu3 = nn.ReLU()
+        self.dropout = nn.Dropout(0.3366)
 
     def forward(self, x):
-        return self.model(x)
+        x = self.relu1(self.fc1(x))
+        x = self.relu2(self.fc2(x))
+        x = self.relu3(self.fc3(x))
+        x = self.dropout(x)
+        x = self.fc4(x)
+        return x
     
 # Lade die Metadaten
-input_size = torch.load("parameters/input_size", weights_only=True)
-model = MLP(input_size=input_size)
-
-# Lade die Modellgewichte
-model.load_state_dict(torch.load("parameters/trained_parameters.pth", weights_only=True))
-
+input_size = torch.load("model2/parameters/input_size", weights_only=True)
+model = torch.load("model2/trained_model.pth", weights_only=False)
 model.eval()
 print("Model loaded")
 
@@ -235,12 +219,12 @@ steps = int(total_hours / step_size_hours)
 for i in range(steps):
     valid_times_interpol.append(start_time + i * step_size)
 
-example_data = pd.read_parquet("../data/production_history/Example/example_time_series.parquet")
+example_data = pd.read_parquet("data/production_history/Example/example_time_series.parquet")
 example_dates = example_data['Date']
 example_production = example_data['Production (kW)']
 
 # Read the HTML documentation file
-with open("documentation.html", "r", encoding="utf-8") as f:
+with open("model2/documentation.html", "r", encoding="utf-8") as f:
     documentation_html = f.read()
 
 app_ui = ui.page_navbar(
@@ -254,7 +238,7 @@ app_ui = ui.page_navbar(
             ui.column(2,  # Left column for input fields
                 ui.input_slider("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2, step=0.01),
                 ui.input_slider("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.01),
-                ui.input_select("turbine_type", "Turbine Type", choices=known_turbine_types.tolist(), selected=known_turbine_types[0]),
+                ui.input_select("turbine_type", "Turbine Type", choices=selectable_turbine_types.tolist(), selected=known_turbine_types[0]),
                 ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.1),
                 ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1),
                 ui.input_slider("commissioning_date_month", "Commissioning Date (Month)", min=1, max=12, value=6, step=1),
@@ -335,7 +319,7 @@ def server(input, output, session):
         # Parameter extrahieren
         lat = lats_plants[index]
         lon = lons_plants[index]
-        turbine_type = processed_turbine_types[index]
+        turbine_type = turbine_types[index]
         hub_height = hub_heights[index]
         capacity = capacities[index]
         commissioning_date = commissioning_dates[index]
@@ -349,7 +333,7 @@ def server(input, output, session):
         # while is_programmatic_change is already false --> output_summary will be reset --> to avoid
         ui.update_slider("lat", value=round(lat, 2))
         ui.update_slider("lon", value=round(lon, 2))
-        ui.update_select("turbine_type", selected=turbine_type)
+        ui.update_select("turbine_type", selected=turbine_type if turbine_type in selectable_turbine_types else "unknown")
         ui.update_slider("hub_height", value=round(hub_height, 1))
         ui.update_slider("commissioning_date_year", value=commissioning_date_year)
         ui.update_slider("commissioning_date_month", value=commissioning_date_month)
@@ -368,12 +352,13 @@ def server(input, output, session):
         )
 
         markers = []
-        for name, capacity, number_of_turbines, operator, id, lat, lon in zip(project_names, capacities, numbers_of_turbines, operators, ids, lats_plants, lons_plants):
+        for name, capacity, number_of_turbines, turbine_type, operator, id, lat, lon in zip(project_names, capacities, numbers_of_turbines, turbine_types, operators, ids, lats_plants, lons_plants):
             
             popup_content = HTML(
                 f"<strong>Project Name:</strong> {name}<br>"
                 f"<strong>Capacity:</strong> {capacity} MW<br>"
                 f"<strong>Number of turbines:</strong> {number_of_turbines}<br>"
+                f"<strong>Turbine Type:</strong> {turbine_type}<br>"
                 f"<strong>Operator:</strong> {operator}<br>"
                 f"<strong>Wind speed forecast:</strong> select forecast step<br>"
                 f"<strong>Production forecast:</strong> select forecast step<br>"
@@ -407,6 +392,13 @@ def server(input, output, session):
             wind_speeds_at_points = np.array([spatial_interpolator(lon, lat)[0] for lon, lat in zip(lons_plants, lats_plants)])
             scaled_wind_speeds_at_points = scalers["winds"].transform(wind_speeds_at_points.reshape(-1, 1)).flatten()
 
+            turbine_types_onehot = np.zeros((number_wpps, len(known_turbine_types)))
+            for i, turbine_type in enumerate(turbine_types):
+                if turbine_type not in known_turbine_types:
+                    turbine_types_onehot[i] = np.full(len(known_turbine_types), 1.0 / len(known_turbine_types))
+                else:
+                    turbine_types_onehot[i] = encoder.transform(np.array([[turbine_type]])).flatten()
+
             all_input_features = np.hstack([
                 turbine_types_onehot,
                 scaled_hub_heights.reshape(-1, 1),
@@ -422,11 +414,12 @@ def server(input, output, session):
             predictions[(predictions < 0)] = 0
             
             # Update marker pop-ups with production values
-            for marker, name, capacity, number_of_turbines, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, numbers_of_turbines, operators, wind_speeds_at_points, predictions, ids):
+            for marker, name, capacity, number_of_turbines, turbine_type, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, numbers_of_turbines, turbine_types, operators, wind_speeds_at_points, predictions, ids):
                 marker.popup.value = \
                     f"<strong>Project Name:</strong> {name}<br>"\
                     f"<strong>Capacity:</strong> {capacity} MW<br>"\
                     f"<strong>Number of Turbines:</strong> {number_of_turbines}<br>"\
+                    f"<strong>Turbine Type:</strong> {turbine_type}<br>"\
                     f"<strong>Operator:</strong> {operator}<br>"\
                     f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
                     f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
@@ -539,7 +532,6 @@ def server(input, output, session):
     def observe_slider_changes():
         # Überspringen, wenn Änderungen programmatisch sind
         if is_programmatic_change.get():
-            print(input.lat(), input.lon(), input.turbine_type(), input.hub_height(), input.commissioning_date_year(), input.commissioning_date_month(), input.capacity())
             is_programmatic_change.set(None)
             return
 
@@ -642,7 +634,13 @@ def server(input, output, session):
 
             scaled_wind_speeds_at_point = scalers["winds"].transform(np.array(wind_speeds_at_point).reshape(-1, 1)).flatten()
 
-            turbine_type_repeated = np.tile(encoder.transform(np.array([[turbine_type]])), (num_steps, 1))
+            if turbine_type == "unknown":
+                num_categories = len(known_turbine_types)
+                one_hot_vector = np.full((1, num_categories), 1 / num_categories)
+                turbine_type_repeated = np.tile(one_hot_vector, (num_steps, 1))
+            else:
+                turbine_type_repeated = np.tile(encoder.transform(np.array([[turbine_type]])), (num_steps, 1))
+
             hub_height_repeated = np.full((num_steps, 1), scaled_hub_height)
             age_repeated = np.full((num_steps, 1), scaled_age_months)
             wind_speed_column = scaled_wind_speeds_at_point.reshape(-1, 1)
@@ -664,7 +662,27 @@ def server(input, output, session):
 
             # Store the forecast data in the reactive `forecast_data`
             forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions_power})
-            ax1.plot(valid_times_interpol, predictions_power, label="Predicted Production (MW)", color='blue')
+
+            from scipy.interpolate import CubicSpline
+
+            # Create cubic spline interpolation
+            cs = CubicSpline(valid_times_interpol, predictions_power)
+
+            # Generate a finer time grid for smooth plotting
+            fine_time_grid = pd.date_range(start=valid_times_interpol[0], end=valid_times_interpol[-1], periods=500)
+
+            # Get smooth interpolated values
+            smoothed_predictions = cs(fine_time_grid)
+
+            # Plot original and smoothed data
+            ax1.plot(valid_times_interpol, predictions_power, 'o', label="Original Points", color="blue")
+            ax1.plot(fine_time_grid, smoothed_predictions, '-', label="Cubic Spline Interpolation", color="red")
+            ax1.set_xlabel("Date")
+            ax1.set_ylabel("Production (MW)")
+
+
+            #ax1.plot(valid_times_interpol, predictions_power, label="Predicted Production (MW)", color='blue', linestyle='-', marker='o', markersize=3)
+
             ax1.set_ylim(bottom=0)
             ax1.set_title("Forecasted Wind Turbine Production")
 

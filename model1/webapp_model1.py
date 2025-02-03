@@ -30,7 +30,7 @@ lat_min, lat_max = 35, 72
 lon_min, lon_max = -25, 45
 
 # Path to the stored weather data
-wind_file = "../data/weather_forecast/data_europe.grib2"
+wind_file = "data/weather_forecast/data_europe.grib2"
 # Set time interval for updates (in seconds)
 time_threshold = 24 * 3600  # 24 hours in seconds
 overwrite = 0  # force overwriting of data
@@ -95,7 +95,7 @@ v = ds_filtered['v100'].values
 valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
-df = pd.read_parquet("../data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
+df = pd.read_parquet("data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
 df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
 countries = df['Country'].values
@@ -117,7 +117,7 @@ hub_height_statuses = df['Hub height status'].values
 number_wpps = len(ids)
 
 # Lade die gespeicherte Reihenfolge der Turbinentypen
-known_turbine_types = np.load("parameters/turbine_types_order.npy")
+known_turbine_types = np.load("model1/parameters/turbine_types_order.npy")
 processed_turbine_types = [turbine if turbine in known_turbine_types else "nan" for turbine in turbine_types]
 encoder = OneHotEncoder(categories=[known_turbine_types], sparse_output=False)
 turbine_types_onehot = encoder.fit_transform(np.array(processed_turbine_types).reshape(-1, 1))
@@ -131,7 +131,7 @@ min_capacity = 0
 max_capacity = capacities.max()
 
 # Lade den Scaler
-scalers = joblib.load("parameters/scalers.pkl")
+scalers = joblib.load("model1/parameters/scalers.pkl")
 
 # Wende sie auf neue Daten an
 scaled_ages_months = scalers["ages"].transform(ages_months.reshape(-1, 1)).flatten()
@@ -179,11 +179,11 @@ class MLP(nn.Module):
         return self.model(x)
     
 # Lade die Metadaten
-input_size = torch.load("parameters/input_size", weights_only=True)
+input_size = torch.load("model1/parameters/input_size", weights_only=True)
 model = MLP(input_size=input_size)
 
 # Lade die Modellgewichte
-model.load_state_dict(torch.load("parameters/trained_parameters.pth", weights_only=True))
+model.load_state_dict(torch.load("model1/parameters/trained_parameters.pth", weights_only=True))
 
 model.eval()
 print("Model loaded")
@@ -224,7 +224,7 @@ steps = int(total_hours / step_size_hours)
 for i in range(steps):
     valid_times_interpol.append(start_time + i * step_size)
 
-example_data = pd.read_parquet("../data/production_history/Example/example_time_series.parquet")
+example_data = pd.read_parquet("data/production_history/Example/example_time_series.parquet")
 example_dates = example_data['Date']
 example_production = example_data['Production (kW)']
 

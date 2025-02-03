@@ -2,8 +2,8 @@
 __pycache__
 .github\workflows
 data
-Excels
-images
+Excel_Tables
+model3/reforecast_data
 QGIS_Project
 qgis2web_Test_Project
 runs

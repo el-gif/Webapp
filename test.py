@@ -1,77 +1,90 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.interpolate import griddata
-from matplotlib.lines import Line2D
+import pandas as pd
 import json
 
-# Lade die synthetischen Daten
-with open("data/synthetic_data.json", "r", encoding="utf-8") as f:
-    synthetic_data = json.load(f)
+# Laden der Daten
+df_wind_power = pd.read_excel("data/WPPs/Windfarms_Europe_20241123.xlsx", sheet_name="Windfarms")
+df_assignment = pd.read_excel("data/Assignment_manual.xlsx", sheet_name="Sheet1")
+with open(r"C:\Users\alexa\Documents\Webapp\data\production_history\production_summary_all.json", "r") as file:
+    df_json = json.load(file)
+    
+# Filtere nur Zeilen, bei denen "ID_The-Wind-Power" nicht "not found" ist
+df_assignment = df_assignment[df_assignment["ID_The-Wind-Power"] != "not found"]
 
-# Extrahiere Windgeschwindigkeiten, Kapazitäten und Leistungen
-wind_speeds = []
-capacities = []
-powers = []
+# set with unique generation unit codes
+generation_unit_code_set = set(df_assignment['GenerationUnitCode'])
 
-for entry in synthetic_data:
-    capacity = entry["Capacity"]
-    for production_entry in entry["Production"]:
-        wind_speed = production_entry[2]
-        power = production_entry[1]
+# Extrahiere und entpacke alle gültigen IDs aus der Spalte "ID_The-Wind-Power"
+def extract_ids(value):
+    # Überprüfen, ob der Wert eine Liste ist, und ggf. in einzelne IDs zerlegen
+    if isinstance(value, str) and value.startswith("[") and value.endswith("]"):
+        return eval(value)  # Konvertiert die Zeichenkette in eine Liste
+    elif isinstance(value, (int, str)):
+        return [int(value)]  # Einzelne IDs werden in eine Liste gewandelt
+    return []
 
-        wind_speeds.append(wind_speed)
-        capacities.append(capacity)
-        powers.append(power)
+valid_ids = set()
+df_assignment["ID_The-Wind-Power"].apply(lambda x: valid_ids.update(extract_ids(x)))
 
-# Konvertiere zu numpy Arrays
-wind_speeds = np.array(wind_speeds)
-capacities = np.array(capacities)
-powers = np.array(powers)
+df_filtered = df_wind_power[df_wind_power['ID'].isin(valid_ids)].copy()
 
-# Definiere die Zielgitter für die Interpolation
-unique_wind_speeds = np.linspace(0, 30, 250)
-unique_capacities = np.linspace(0, 15, 100)
-wind_speeds_grid, capacities_grid = np.meshgrid(unique_wind_speeds, unique_capacities)
+print("number WPPs:", len(valid_ids))
 
-# Konvertiere Kapazitäten so, dass sie dieselbe Länge wie die Windgeschwindigkeiten haben
-expanded_capacities = np.tile(capacities, len(synthetic_data[0]["Production"][0][0]))
+production_data = [] # neues JSON-File mit Produktionsdaten für die WPPs
+temporal_wpps = [] # WPPs, die temporär gespeichert werden, um sie später zu aktualisieren
 
-# Prüfe, ob die Dimensionen jetzt übereinstimmen
-assert len(expanded_capacities) == len(wind_speeds.flatten()), "Die Dimensionen von wind_speeds und expanded_capacities stimmen nicht überein!"
+# Gehe durch jede Zeile der Assignment-Datei und füge Produktionsdaten hinzu
+for _, row in df_assignment.iterrows():
 
-# Interpolation vorbereiten
-points = np.vstack((wind_speeds.flatten(), expanded_capacities)).T
-values = powers.flatten()
+    production_array = df_json[row['JSON-ID']]['Production']
+    capacity = row['GenerationUnitInstalledCapacity(MW)']
 
-# Interpoliere die Werte der Power Curves auf das Zielgitter
-powers_grid = griddata(points, values, (wind_speeds_grid, capacities_grid), method='linear', fill_value=0)
+    capacities = []
+    ids_in_row = extract_ids(row["ID_The-Wind-Power"])
+    for index, id in enumerate(ids_in_row):
+        current_index = df_filtered.loc[df_filtered['ID'] == id].index[0]
+        capacities.append(df_filtered.at[current_index, "Total power"])
+        capacity_total = sum(capacities)
 
-# Flache Ebene: capacity = power
-z_flat = capacities_grid  # Ebene durch Kapazitäten dargestellt
+    for index, id in enumerate(ids_in_row):
+        current_index = df_filtered.loc[df_filtered['ID'] == id].index[0]
 
-# Rest des Codes bleibt gleich
-fig = plt.figure(figsize=(12, 10))
-ax = fig.add_subplot(111, projection='3d')
-ax.set_box_aspect([1, 1, 1])
+        # scale capacity and production in proportion to their occurences in the The Wind Power database (can be different turbine types)
+        capacity_instance = capacity * capacities[index] / capacity_total
+        production_array_instance = [
+            [entry[0], entry[1] * (capacities[index] / capacity_total)]
+            for entry in df_json[row['JSON-ID']]['Production']
+        ]
 
-color_mask = np.where(powers_grid > z_flat, 1, 0)
-cmap = plt.get_cmap("coolwarm")
-norm = plt.Normalize(vmin=0, vmax=1)
-facecolors = cmap(norm(color_mask))
 
-surf = ax.plot_surface(wind_speeds_grid, capacities_grid, powers_grid, facecolors=facecolors, edgecolor='none', alpha=0.9)
-ax.plot_surface(wind_speeds_grid, capacities_grid, z_flat, color='gray', alpha=0.3, edgecolor='none')
+        # Daten für das Windkraftwerk hinzufügen
+        row_data = {
+            'Name': row['GenerationUnitName'], # from assignment file
+            'ID_The-Wind-Power': id, # from assignment file
+            'JSON-ID': row['JSON-ID'], # from assignment file
+            'Code': row['GenerationUnitCode'], # from assignment file
+            'Type': row['GenerationUnitType'], # from assignment file
+            'Capacity': capacity_instance, # from assignment file, scaled
+            'Hub_height': df_filtered.at[current_index, "Hub height"], # from The Wind Power file
+            'Commissioning_date': df_filtered.at[current_index, "Commissioning date"], # from The Wind Power file
+            'Number_of_turbines': int(df_filtered.at[current_index, "Number of turbines"]), # from The Wind Power file (value only valid for latest WPPs)
+            'Turbine': df_filtered.at[current_index, "Turbine"], # from The Wind Power file
+            'Latitude': df_filtered.at[current_index, "Latitude"], # from The Wind Power file
+            'Longitude': df_filtered.at[current_index, "Longitude"], # from The Wind Power file
+            'Production': production_array_instance # from JSON file, scaled
+        }
 
-ax.set_xlim(ax.get_xlim()[::-1])
-ax.set_xlabel("Wind Speed (m/s)")
-ax.set_ylabel("Capacity (MW)")
-ax.set_zlabel("Power (MW)")
-ax.set_title("3D Plot of Power Curves; Derived from Synthetic Data")
+        production_data.append(row_data)
 
-legend_elements = [
-    Line2D([0], [0], color='red', lw=4, label='Power > Capacity'),
-    Line2D([0], [0], color='blue', lw=4, label='Power <= Capacity')
-]
-ax.legend(handles=legend_elements, loc='upper right')
+print("number WPPs after preprocessing", len(production_data))
 
-plt.show()
+# JSON-Datei speichern
+with open("data/WPPs+production_new.json", 'w', encoding='utf-8') as json_file:
+    json.dump(production_data, json_file, ensure_ascii=False, indent=4)
+
+print(f"Zusammengeführte JSON-Datei wurde erfolgreich gespeichert unter: {output_file}")
+
+# Convert the list to a DataFrame
+df_production_data = pd.DataFrame(production_data)
+
+# Save the DataFrame to an Excel file
+df_production_data.to_excel("data/WPPs+production_new.xlsx", index=False)
