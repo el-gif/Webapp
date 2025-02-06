@@ -9,13 +9,12 @@ from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML  # pip 
 import numpy as np
 import pandas as pd
 import xarray as xr
-from scipy.interpolate import interp2d  # pip install scipy==1.13.1, interp2d much faster than RegularGridInterpolator, even if deprecated
+from scipy.interpolate import CubicSpline, interp2d  # pip install scipy==1.13.1, interp2d much faster than RegularGridInterpolator, even if deprecated
 import base64
 from ecmwf.opendata import Client
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-import time
 import math
 import joblib
 import torch
@@ -23,6 +22,7 @@ import torch.nn as nn
 from sklearn.preprocessing import OneHotEncoder
 import datetime
 import matplotlib.dates as mdates
+import glob
 
 # Define initial variables
 initial = 0
@@ -61,47 +61,46 @@ overwrite = 0  # force overwriting of data
 current_utc = datetime.datetime.now(datetime.timezone.utc)
 
 if current_utc.hour >= 21:
-    latest_run = 12  # 12 UTC run is available after 18:27 UTC + 1 hour (+ margin)
+    latest_time = 12  # 12 UTC run is available after 18:27 UTC + 1 hour (+ margin)
+    latest_date = current_utc.date()
 elif current_utc.hour >= 9:
-    latest_run = 0  # 00 UTC run is available after 06:27 UTC + 1 hour (+ margin)
+    latest_time = 0  # 00 UTC run is available after 06:27 UTC + 1 hour (+ margin)
+    latest_date = current_utc.date()
 else:
-    latest_run = 12
+    latest_time = 12
+    latest_date = (current_utc - datetime.timedelta(days=1)).date()
 
-print(f"Latest available forecast run: {latest_run} UTC")
+print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
 
-if latest_run == 0:
-    new_file = f"data/weather_forecast/data_europe_0.grib2"
-    old_file = f"data/weather_forecast/data_europe_12.grib2"
-else:
-    new_file = f"data/weather_forecast/data_europe_12.grib2"
-    old_file = f"data/weather_forecast/data_europe_0.grib2"
+file = f"data/weather_forecast/data_europe_{latest_date}_{latest_time}.grib"
 
 # Check if the new forecast file is already available
-if os.path.exists(new_file) and overwrite == 0:
-    print(f"Latest forecast file ({new_file}) is already available. No download needed.")
+if os.path.exists(file) and overwrite == 0:
+    print(f"Latest forecast file {file} is already available. No download needed.")
 else:
-    # If the old file exists, delete it
-    if os.path.exists(old_file):
-        print(f"Old forecast file ({old_file}) found. Deleting...")
-        os.remove(old_file)
-        print("Old forecast file deleted.")
+    for old_file in os.listdir("data/weather_forecast"):
+        old_file_path = os.path.join("data/weather_forecast", old_file)
+        if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
+            print(f"Deleting old file: {old_file_path}")
+            os.remove(old_file_path)
+            print("File deleted.")
 
     # Download the new forecast file
-    print(f"Downloading new forecast file: {new_file}")
+    print(f"Downloading new forecast file {file}")
     
     # Fetch the latest ECMWF forecast data
     result = client.retrieve(
         type="fc",
         param=["100v", "100u"],  # U- and V-components of wind speed
-        target=new_file,
-        time=latest_run,  # Use the latest available forecast run
+        target=file,
+        time=latest_time,  # Use the latest available forecast run
         step=step_selection
     )
 
-    print(f"New forecast file ({new_file}) successfully downloaded.")
+    print(f"New forecast file {file} successfully downloaded.")
 
 # Load the wind data (Grib2 file)
-ds = xr.open_dataset(new_file, engine='cfgrib')
+ds = xr.open_dataset(file, engine='cfgrib')
 
 # Filter the data for Europe and extract relevant columns
 ds_filtered = ds.sel(latitude=slice(lat_max, lat_min), longitude=slice(lon_min, lon_max))
@@ -137,7 +136,6 @@ number_wpps = len(ids)
 known_turbine_types = np.load("model2/parameters/turbine_types_order.npy")
 selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown"])))
 encoder = OneHotEncoder(categories=[known_turbine_types], sparse_output=False)
-encoder.fit_transform(np.array(known_turbine_types).reshape(-1, 1))
 encoder.fit(np.array(known_turbine_types).reshape(-1, 1))
 
 hub_height_min = math.floor(0.9 * df['Hub height'].min())
@@ -154,8 +152,6 @@ scalers = joblib.load("model2/parameters/scalers.pkl")
 # Wende sie auf neue Daten an
 scaled_ages_months = scalers["ages"].transform(ages_months.reshape(-1, 1)).flatten()
 scaled_hub_heights = scalers["hub_heights"].transform(hub_heights.reshape(-1, 1)).flatten()
-
-import torch.nn as nn
 
 class MLP(nn.Module):
     def __init__(self, input_size):
@@ -179,7 +175,7 @@ class MLP(nn.Module):
     
 # Lade die Metadaten
 input_size = torch.load("model2/parameters/input_size", weights_only=True)
-model = torch.load("model2/trained_model.pth", weights_only=False)
+model = torch.load("model2/parameters/trained_model.pth", weights_only=False)
 model.eval()
 print("Model loaded")
 
@@ -663,8 +659,6 @@ def server(input, output, session):
             # Store the forecast data in the reactive `forecast_data`
             forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions_power})
 
-            from scipy.interpolate import CubicSpline
-
             # Create cubic spline interpolation
             cs = CubicSpline(valid_times_interpol, predictions_power)
 
@@ -679,10 +673,6 @@ def server(input, output, session):
             ax1.plot(fine_time_grid, smoothed_predictions, '-', label="Cubic Spline Interpolation", color="red")
             ax1.set_xlabel("Date")
             ax1.set_ylabel("Production (MW)")
-
-
-            #ax1.plot(valid_times_interpol, predictions_power, label="Predicted Production (MW)", color='blue', linestyle='-', marker='o', markersize=3)
-
             ax1.set_ylim(bottom=0)
             ax1.set_title("Forecasted Wind Turbine Production")
 
