@@ -22,7 +22,6 @@ import torch.nn as nn
 from sklearn.preprocessing import OneHotEncoder
 import datetime
 import matplotlib.dates as mdates
-import glob
 
 # Define initial variables
 initial = 0
