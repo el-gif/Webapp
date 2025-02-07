@@ -71,14 +71,14 @@ else:
 
 print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
 
-file = f"weather_forecast/data_europe_{latest_date}_{latest_time}.grib"
+file = f"data_europe_{latest_date}_{latest_time}.grib"
 
 # Check if the new forecast file is already available
 if os.path.exists(file) and overwrite == 0:
     print(f"Latest forecast file {file} is already available. No download needed.")
 else:
-    for old_file in os.listdir("weather_forecast"):
-        old_file_path = os.path.join("weather_forecast", old_file)
+    for old_file in os.listdir("."):
+        old_file_path = os.path.join(".", old_file)
         if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
             print(f"Deleting old file: {old_file_path}")
             os.remove(old_file_path)
