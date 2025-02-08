@@ -78,10 +78,9 @@ if os.path.exists(file) and overwrite == 0:
     print(f"Latest forecast file {file} is already available. No download needed.")
 else:
     for old_file in os.listdir("."):
-        old_file_path = os.path.join(".", old_file)
-        if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
-            print(f"Deleting old file: {old_file_path}")
-            os.remove(old_file_path)
+        if os.path.isfile(old_file):  # Ensure it's a file (not a folder)
+            print(f"Deleting old file: {old_file}")
+            os.remove(old_file)
             print("File deleted.")
 
     # Download the new forecast file
