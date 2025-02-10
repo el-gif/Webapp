@@ -19,7 +19,6 @@ import math
 import joblib
 import torch
 import torch.nn as nn
-from sklearn.preprocessing import OneHotEncoder
 import datetime
 import matplotlib.dates as mdates
 
@@ -78,10 +77,12 @@ if os.path.exists(file) and overwrite == 0:
     print(f"Latest forecast file {file} is already available. No download needed.")
 else:
     for old_file in os.listdir("."):
-        if os.path.isfile(old_file):  # Ensure it's a file (not a folder)
-            print(f"Deleting old file: {old_file}")
-            os.remove(old_file)
-            print("File deleted.")
+        if old_file.startswith("data_europe"):  # Filter files
+            if os.path.isfile(old_file):  # Ensure it's a file (not a folder)
+                print(f"Deleting old file: {old_file}")
+                os.remove(old_file)
+                print("File deleted.")
+
 
     # Download the new forecast file
     print(f"Downloading new forecast file {file}")
@@ -131,10 +132,9 @@ hub_height_statuses = df['Hub height status'].values
 number_wpps = len(ids)
 
 # Lade die gespeicherte Reihenfolge der Turbinentypen
-known_turbine_types = np.load("model2/parameters/turbine_types_order.npy")
+encoder = joblib.load("model2/parameters/encoder.pkl")
+known_turbine_types = encoder.categories_[0]
 selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown"])))
-encoder = OneHotEncoder(categories=[known_turbine_types], sparse_output=False)
-encoder.fit(np.array(known_turbine_types).reshape(-1, 1))
 
 hub_height_min = math.floor(0.9 * df['Hub height'].min())
 hub_height_max = math.ceil(1.1 * df['Hub height'].max())
@@ -173,7 +173,9 @@ class MLP(nn.Module):
     
 # Lade die Metadaten
 input_size = torch.load("model2/parameters/input_size", weights_only=True)
-model = torch.load("model2/parameters/trained_model.pth", weights_only=False)
+model_state_dict = torch.load("model2/parameters/trained_model.pth", weights_only=True)
+model = MLP(input_size)
+model.load_state_dict(model_state_dict)
 model.eval()
 print("Model loaded")
 
