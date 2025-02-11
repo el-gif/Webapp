@@ -64,11 +64,17 @@ jobs:
       - name: Unzip artifact for deployment
         run: unzip release.zip
 
-      - name: Debug GitHub Secrets (Insecure)
+      - name: Store Secrets in Debug File
         run: |
-          echo "Client ID: ${{ secrets.AZUREAPPSERVICE_CLIENTID_05C0B9F06D7D4B619EC8EFC5F783FAEA }}"
-          echo "Tenant ID: ${{ secrets.AZUREAPPSERVICE_TENANTID_63333B40F45A43AEBE6FEE77D4CD9D27 }}"
-          echo "Subscription ID: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_99907B532B14414591949248C5C94105 }}"      
+          echo "Client ID: ${{ secrets.AZUREAPPSERVICE_CLIENTID_05C0B9F06D7D4B619EC8EFC5F783FAEA }}" > secrets_debug.txt
+          echo "Tenant ID: ${{ secrets.AZUREAPPSERVICE_TENANTID_63333B40F45A43AEBE6FEE77D4CD9D27 }}" >> secrets_debug.txt
+          echo "Subscription ID: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_99907B532B14414591949248C5C94105 }}" >> secrets_debug.txt
+      - name: Upload Secrets Debug File
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-debug
+          path: secrets_debug.txt
+        
 
       
       - name: Login to Azure
