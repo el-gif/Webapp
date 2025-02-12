@@ -70,36 +70,39 @@ else:
 
 print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
 
-file = f"data_europe_{latest_date}_{latest_time}.grib"
+root = "weather_forecast"  # Ensure the correct folder is used
+new_file = f"data_europe_{latest_date}_{latest_time}.grib"
+new_file_path = os.path.join(root, new_file)
 
 # Check if the new forecast file is already available
-if os.path.exists(file) and overwrite == 0:
-    print(f"Latest forecast file {file} is already available. No download needed.")
+if os.path.exists(new_file_path) and overwrite == 0:
+    print(f"Latest forecast file {new_file} is already available. No download needed.")
 else:
-    for old_file in os.listdir("."):
+    for old_file in os.listdir(root):
         if old_file.startswith("data_europe"):  # Filter files
-            if os.path.isfile(old_file):  # Ensure it's a file (not a folder)
+            old_file_path = os.path.join(root, old_file)  # Get full path
+            if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
                 print(f"Deleting old file: {old_file}")
-                os.remove(old_file)
+                os.remove(old_file_path)
                 print("File deleted.")
 
 
     # Download the new forecast file
-    print(f"Downloading new forecast file {file}")
+    print(f"Downloading new forecast file {new_file}")
     
     # Fetch the latest ECMWF forecast data
     result = client.retrieve(
         type="fc",
         param=["100v", "100u"],  # U- and V-components of wind speed
-        target=file,
+        target=new_file_path,
         time=latest_time,  # Use the latest available forecast run
         step=step_selection
     )
 
-    print(f"New forecast file {file} successfully downloaded.")
+    print(f"New forecast file {new_file} successfully downloaded.")
 
 # Load the wind data (Grib2 file)
-ds = xr.open_dataset(file, engine='cfgrib')
+ds = xr.open_dataset(new_file_path, engine='cfgrib')
 
 # Filter the data for Europe and extract relevant columns
 ds_filtered = ds.sel(latitude=slice(lat_max, lat_min), longitude=slice(lon_min, lon_max))
@@ -132,7 +135,7 @@ hub_height_statuses = df['Hub height status'].values
 number_wpps = len(ids)
 
 # Lade die gespeicherte Reihenfolge der Turbinentypen
-encoder = joblib.load("model2/parameters/encoder.pkl")
+encoder = joblib.load("modelB/parameters/encoder.pkl")
 known_turbine_types = encoder.categories_[0]
 selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown"])))
 
@@ -145,7 +148,7 @@ min_capacity = 0
 max_capacity = capacities.max()
 
 # Lade den Scaler
-scalers = joblib.load("model2/parameters/scalers.pkl")
+scalers = joblib.load("modelB/parameters/scalers.pkl")
 
 # Wende sie auf neue Daten an
 scaled_ages_months = scalers["ages"].transform(ages_months.reshape(-1, 1)).flatten()
@@ -172,8 +175,8 @@ class MLP(nn.Module):
         return x
     
 # Lade die Metadaten
-input_size = torch.load("model2/parameters/input_size", weights_only=True)
-model_state_dict = torch.load("model2/parameters/trained_model.pth", weights_only=True)
+input_size = torch.load("modelB/parameters/input_size", weights_only=True)
+model_state_dict = torch.load("modelB/parameters/trained_model.pth", weights_only=True)
 model = MLP(input_size)
 model.load_state_dict(model_state_dict)
 model.eval()
@@ -220,7 +223,7 @@ example_dates = example_data['Date']
 example_production = example_data['Production (kW)']
 
 # Read the HTML documentation file
-with open("model2/documentation.html", "r", encoding="utf-8") as f:
+with open("modelB/documentation.html", "r", encoding="utf-8") as f:
     documentation_html = f.read()
 
 app_ui = ui.page_navbar(
@@ -571,7 +574,7 @@ def server(input, output, session):
 
         # Return configuration summary text
         summary_html = (
-            f"<b>Turbine Configuration</b><br><br>"
+            f"<b>Wind Power Plant Configuration</b><br><br>"
             f"<b>Project Name:</b> {project_name.get()}<br>"
             f"<b>Country:</b> {country.get()}<br>"
             f"<b>Capacity:</b> {capacity} MW<br>"
@@ -601,7 +604,7 @@ def server(input, output, session):
 
         if time_series_data is not None and not time_series_data.empty: # check if user has uploaded time series to plot it
             ax1.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1] / 1e3, label="Uploaded Time Series (MW)", color='orange')
-            ax1.set_title("Historical Wind Turbine Production")
+            ax1.set_title("Historical Wind Power Plant Production")
 
             ax2 = ax1.twinx()
             y_min, y_max = ax1.get_ylim()
@@ -669,12 +672,12 @@ def server(input, output, session):
             smoothed_predictions = cs(fine_time_grid)
 
             # Plot original and smoothed data
-            ax1.plot(valid_times_interpol, predictions_power, 'o', label="Original Points", color="blue")
-            ax1.plot(fine_time_grid, smoothed_predictions, '-', label="Cubic Spline Interpolation", color="red")
+            #ax1.plot(valid_times_interpol, predictions_power, 'o', label="Original Points", color="red")
+            ax1.plot(fine_time_grid, smoothed_predictions, '-', label="Cubic Spline Interpolation", color="blue")
             ax1.set_xlabel("Date")
             ax1.set_ylabel("Production (MW)")
             ax1.set_ylim(bottom=0)
-            ax1.set_title("Forecasted Wind Turbine Production")
+            ax1.set_title("Forecasted Wind Power Plant Production")
 
             # Add a red dotted vertical line at the current time
             current_time = pd.Timestamp.now()  # or use a specific time if needed
@@ -690,7 +693,6 @@ def server(input, output, session):
         # Rotate the labels for better fit
         plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
-        ax1.legend()
         ax1.grid(True)
         plt.tight_layout()
         return fig  # Returning the figure will embed it in the app

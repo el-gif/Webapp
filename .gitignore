@@ -2,7 +2,9 @@
 __pycache__
 data
 Excel_Tables
-model3/reforecast_data
+modelC/reforecast_data
 QGIS_Project
 qgis2web_Test_Project
+weather_forecast/*
+!weather_forecast/.keep
 wind_energy.html

@@ -117,7 +117,7 @@ hub_height_statuses = df['Hub height status'].values
 number_wpps = len(ids)
 
 # Lade die gespeicherte Reihenfolge der Turbinentypen
-known_turbine_types = np.load("model1/parameters/turbine_types_order.npy")
+known_turbine_types = np.load("modelA/parameters/turbine_types_order.npy")
 processed_turbine_types = [turbine if turbine in known_turbine_types else "nan" for turbine in turbine_types]
 encoder = OneHotEncoder(categories=[known_turbine_types], sparse_output=False)
 turbine_types_onehot = encoder.fit_transform(np.array(processed_turbine_types).reshape(-1, 1))
@@ -131,7 +131,7 @@ min_capacity = 0
 max_capacity = capacities.max()
 
 # Lade den Scaler
-scalers = joblib.load("model1/parameters/scalers.pkl")
+scalers = joblib.load("modelA/parameters/scalers.pkl")
 
 # Wende sie auf neue Daten an
 scaled_ages_months = scalers["ages"].transform(ages_months.reshape(-1, 1)).flatten()
@@ -179,11 +179,11 @@ class MLP(nn.Module):
         return self.model(x)
     
 # Lade die Metadaten
-input_size = torch.load("model1/parameters/input_size", weights_only=True)
+input_size = torch.load("modelA/parameters/input_size", weights_only=True)
 model = MLP(input_size=input_size)
 
 # Lade die Modellgewichte
-model.load_state_dict(torch.load("model1/parameters/trained_parameters.pth", weights_only=True))
+model.load_state_dict(torch.load("modelA/parameters/trained_parameters.pth", weights_only=True))
 
 model.eval()
 print("Model loaded")
