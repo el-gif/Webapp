@@ -1,10 +1,9 @@
 # no spaces, not even in folder name!
 __pycache__
 data
+data_hosting/data_europe*
 Excel_Tables
 modelC/reforecast_data
 QGIS_Project
 qgis2web_Test_Project
-weather_forecast/*
-!weather_forecast/.keep
 wind_energy.html

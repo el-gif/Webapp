@@ -70,7 +70,7 @@ else:
 
 print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
 
-root = "weather_forecast"  # Ensure the correct folder is used
+root = "data_hosting"  # Ensure the correct folder is used
 new_file = f"data_europe_{latest_date}_{latest_time}.grib"
 new_file_path = os.path.join(root, new_file)
 
@@ -113,7 +113,7 @@ v = ds_filtered['v100'].values
 valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
-df = pd.read_parquet("data/WPPs/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
+df = pd.read_parquet("data_hosting/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
 df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
 countries = df['Country'].values
