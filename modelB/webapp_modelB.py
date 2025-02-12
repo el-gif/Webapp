@@ -218,7 +218,7 @@ steps = int(total_hours / step_size_hours)
 for i in range(steps):
     valid_times_interpol.append(start_time + i * step_size)
 
-example_data = pd.read_parquet("data/production_history/Example/example_time_series.parquet")
+example_data = pd.read_parquet("data_hosting/example_time_series.parquet")
 example_dates = example_data['Date']
 example_production = example_data['Production (kW)']
 

@@ -1,7 +1,8 @@
 # no spaces, not even in folder name!
 __pycache__
 data
-data_hosting/data_europe*
+data_hosting/*
+!data_hosting/*.parquet
 Excel_Tables
 modelC/reforecast_data
 QGIS_Project
