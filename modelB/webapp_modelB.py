@@ -4,7 +4,7 @@ os.environ['FOR_DISABLE_CONSOLE_CTRL_HANDLER'] = 'T' # to disable Ctrl+C crashin
 from openpyxl import Workbook
 from shiny import ui, App, reactive, render
 from shinywidgets import render_widget, output_widget
-from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, AwesomeIcon, Heatmap
+from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, AwesomeIcon, Heatmap, ScaleControl
 from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML  # pip install ipywidgets==7.6.5, because version 8 has an issue with popups (https://stackoverflow.com/questions/75434737/shiny-for-python-using-add-layer-for-popus-from-ipyleaflet)
 import numpy as np
 import pandas as pd
@@ -27,79 +27,80 @@ initial = 0
 lat_min, lat_max = 35, 72
 lon_min, lon_max = -25, 45
 
-# Initialise ECMWF client
-client = Client(
-    source="ecmwf",
-    model="ifs",
-    resol="0p25"
-)
 
 if os.getenv("RENDER") or os.getenv("WEBSITE_HOSTNAME"):  # for Render or Azure Server
-    # for saving storage on server, only 4 time steps
-    step_selection = [0, 3, 6, 9]
-else:
-    # all available steps up to 6 days (144 hours)
-    step_selection = [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60,
-                      63, 66, 69, 72, 75, 78, 81, 84, 87, 90, 93, 96, 99, 102, 105, 108, 111, 114, 117, 120,
-                      123, 126, 129, 132, 135, 138, 141, 144]
 
-# all available steps
-# step_selection = [
-#     0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60,
-#     63, 66, 69, 72, 75, 78, 81, 84, 87, 90, 93, 96, 99, 102, 105, 108, 111, 114, 117, 120,
-#     123, 126, 129, 132, 135, 138, 141, 144, 150, 156, 162, 168, 174, 180, 186, 192, 198, 204,
-#     210, 216, 222, 228, 234, 240
-# ]
+    root = "/home/site/wwwroot/weather_forecast"
 
+    # Get a list of all .grib files in the directory
+    grib_files = [f for f in os.listdir(root) if f.endswith(".grib")]
 
-# Set time interval for updates (in seconds)
-overwrite = 0  # force overwriting of data
+    # Count the number of GRIB files
+    num_files = len(grib_files)
 
-# Determine the latest available forecast based on the ECMWF dissemination schedule https://confluence.ecmwf.int/display/DAC/Dissemination+schedule
-current_utc = datetime.datetime.now(datetime.timezone.utc)
+    # Handle cases where the number of grib files is not exactly 1
+    if num_files != 1:
+        print(f"Error: {num_files} weather forecasts available.")
+        file = None  # No valid file to use
+    else:
+        file = grib_files[0]  # Set 'file' to the only GRIB file
+        print(f"Using weather forecast file: {file}")
 
-if current_utc.hour >= 21:
-    latest_time = 12  # 12 UTC run is available after 18:27 UTC + 1 hour (+ margin)
-    latest_date = current_utc.date()
-elif current_utc.hour >= 9:
-    latest_time = 0  # 00 UTC run is available after 06:27 UTC + 1 hour (+ margin)
-    latest_date = current_utc.date()
-else:
-    latest_time = 12
-    latest_date = (current_utc - datetime.timedelta(days=1)).date()
+    new_file_path = os.path.join(root, file)
 
-print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
+else: # if executed locally, data first have to be downloaded
 
-root = "data_hosting"  # Ensure the correct folder is used
-new_file = f"data_europe_{latest_date}_{latest_time}.grib"
-new_file_path = os.path.join(root, new_file)
+    root = "data/weather_forecast"
 
-# Check if the new forecast file is already available
-if os.path.exists(new_file_path) and overwrite == 0:
-    print(f"Latest forecast file {new_file} is already available. No download needed.")
-else:
-    for old_file in os.listdir(root):
-        if old_file.startswith("data_europe"):  # Filter files
-            old_file_path = os.path.join(root, old_file)  # Get full path
-            if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
-                print(f"Deleting old file: {old_file}")
-                os.remove(old_file_path)
-                print("File deleted.")
-
-
-    # Download the new forecast file
-    print(f"Downloading new forecast file {new_file}")
+    # Initialise ECMWF client
+    client = Client()
+    overwrite = 0  # force overwriting of data
     
-    # Fetch the latest ECMWF forecast data
-    result = client.retrieve(
-        type="fc",
-        param=["100v", "100u"],  # U- and V-components of wind speed
-        target=new_file_path,
-        time=latest_time,  # Use the latest available forecast run
-        step=step_selection
-    )
+    # Determine the latest available forecast based on the ECMWF dissemination schedule https://confluence.ecmwf.int/display/DAC/Dissemination+schedule
+    current_utc = datetime.datetime.now(datetime.timezone.utc)
 
-    print(f"New forecast file {new_file} successfully downloaded.")
+    if current_utc.hour >= 21:
+        latest_time = 12  # 12 UTC run is available after 18:27 UTC + 1 hour (+ margin)
+        latest_date = current_utc.date()
+    elif current_utc.hour >= 9:
+        latest_time = 0  # 00 UTC run is available after 06:27 UTC + 1 hour (+ margin)
+        latest_date = current_utc.date()
+    else:
+        latest_time = 12
+        latest_date = (current_utc - datetime.timedelta(days=1)).date()
+
+    print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
+
+    new_file = f"forecast_{latest_date}_{latest_time}.grib"
+    new_file_path = os.path.join(root, new_file)
+
+    # Check if the new forecast file is already available
+    if os.path.exists(new_file_path) and overwrite == 0:
+        print(f"Latest forecast file {new_file} is already available. No download needed.")
+    else:
+        for old_file in os.listdir(root):
+            if old_file.startswith("forecast"):  # Filter files
+                old_file_path = os.path.join(root, old_file)  # Get full path
+                if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
+                    print(f"Deleting old file: {old_file}")
+                    os.remove(old_file_path)
+                    print("File deleted.")
+
+
+        # Download the new forecast file
+        print(f"Downloading new forecast file {new_file}")
+        
+        # Fetch the latest ECMWF forecast data
+        result = client.retrieve(
+            type="fc",
+            param=["100v", "100u"],  # U- and V-components of wind speed
+            target=new_file_path,
+            time=latest_time,  # Use the latest available forecast run
+            step=list(range(0, 145, 3))
+        )
+
+        print(f"New forecast file {new_file} successfully downloaded.")
+
 
 # Load the wind data (Grib2 file)
 ds = xr.open_dataset(new_file_path, engine='cfgrib')
@@ -113,7 +114,7 @@ v = ds_filtered['v100'].values
 valid_times = ds_filtered['valid_time'].values
 
 # Filter the data for Europe and extract relevant columns
-df = pd.read_parquet("data_hosting/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
+df = pd.read_parquet("data/data_hosting/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
 df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
 countries = df['Country'].values
@@ -218,7 +219,7 @@ steps = int(total_hours / step_size_hours)
 for i in range(steps):
     valid_times_interpol.append(start_time + i * step_size)
 
-example_data = pd.read_parquet("data_hosting/example_time_series.parquet")
+example_data = pd.read_parquet("data/data_hosting/example_time_series.parquet")
 example_dates = example_data['Date']
 example_production = example_data['Production (kW)']
 
@@ -239,7 +240,7 @@ app_ui = ui.page_navbar(
                 ui.input_slider("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.01),
                 ui.input_select("turbine_type", "Turbine Type", choices=selectable_turbine_types.tolist(), selected=known_turbine_types[0]),
                 ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.1),
-                ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1),
+                ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1, sep=''),
                 ui.input_slider("commissioning_date_month", "Commissioning Date (Month)", min=1, max=12, value=6, step=1),
                 ui.input_slider("capacity", "Capacity (MW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2, step=0.01),
                 ui.tags.br(),
@@ -263,6 +264,7 @@ app_ui = ui.page_navbar(
         ui.HTML(documentation_html)
     ),
     ui.head_content(
+        ui.tags.link(rel="icon", type="image/png", href="/WPP_icon2.png"), # image source: https://www.kroschke.com/windsack-set-inkl-korb-und-huelle-korbdurchmesser-650mm-laenge-3500mm--m-8509.html
         ui.tags.script("""
             Shiny.addCustomMessageHandler("download_file", function(message) {
                 var link = document.createElement('a');
@@ -272,8 +274,7 @@ app_ui = ui.page_navbar(
                 link.click();
                 document.body.removeChild(link);
             });
-        """),
-        ui.tags.link(rel="icon", type="image/png", href="/www/WPP_icon2.png") # image source: https://www.kroschke.com/windsack-set-inkl-korb-und-huelle-korbdurchmesser-650mm-laenge-3500mm--m-8509.html
+        """)
     ),
     id="navbar_selected",
     title="Wind Power Forecast"
@@ -346,9 +347,12 @@ def server(input, output, session):
         m = Map(
             center=[(lat_min + lat_max) / 2, (lon_min + lon_max) / 2],
             zoom=5,
-            layout=Layout(width='100%', height='95vh'),
+            layout=Layout(width='100%', height='90vh'),
             scroll_wheel_zoom=True
         )
+
+        scale = ScaleControl(position="bottomleft", imperial=False)
+        m.add(scale)
 
         markers = []
         for name, capacity, number_of_turbines, turbine_type, operator, id, lat, lon in zip(project_names, capacities, numbers_of_turbines, turbine_types, operators, ids, lats_plants, lons_plants):
@@ -805,10 +809,10 @@ def server(input, output, session):
                 time_series_data.to_excel(writer, sheet_name="Time Series", index=False)
 
 # Define absolute path to `www` folder
-path_www = os.path.join(os.path.dirname(__file__), "www")
+path_www = os.path.join(os.path.dirname(__file__), "..", "data/www")
 
 # Start the app with the `www` directory as static content
-app = App(app_ui, server, static_assets={"/www": path_www})
+app = App(app_ui, server, static_assets={"/": path_www})
 
 if __name__ == "__main__":
     # Check if the variable `RENDER` is set to detect if the app is running on Render

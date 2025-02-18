@@ -1,9 +1,9 @@
 # no spaces, not even in folder name!
 __pycache__
-data
-data_hosting/*
-!data_hosting/*.parquet
-Excel_Tables
+data/*
+!data/data_hosting/
+!data/www/
+forecast_fetch
 modelC/reforecast_data
 QGIS_Project
 qgis2web_Test_Project
