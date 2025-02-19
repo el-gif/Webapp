@@ -176,8 +176,8 @@ class MLP(nn.Module):
         return x
     
 # Lade die Metadaten
-input_size = torch.load("modelB/parameters/input_size", weights_only=True)
-model_state_dict = torch.load("modelB/parameters/trained_model.pth", weights_only=True)
+input_size = torch.load("modelB/parameters/input_size.pkl", weights_only=True)
+model_state_dict = torch.load("modelB/parameters/model.pth", weights_only=True)
 model = MLP(input_size)
 model.load_state_dict(model_state_dict)
 model.eval()
