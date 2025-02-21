@@ -30,7 +30,7 @@ lon_min, lon_max = -25, 45
 
 if os.getenv("RENDER") or os.getenv("WEBSITE_HOSTNAME"):  # for Render or Azure Server
 
-    root = "/home/site/wwwroot/weather_forecast"
+    root = "/home/data/weather_forecast"
 
     # Get a list of all .grib files in the directory
     grib_files = [f for f in os.listdir(root) if f.endswith(".grib")]
