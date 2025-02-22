@@ -20,6 +20,7 @@ jobs:
       id-token: write  # Required for authentication
       contents: read  # Required for actions/checkout
 
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -30,6 +31,9 @@ jobs:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_E4AD64E58C2C49C79902D172785F1A15 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_53E4C7180B2D42A4B2C6527750D01310 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F9C3187642A540819AE4F56C6B304B0C }}
+
+      - name: Clean wwwroot before deployment
+        run: az webapp ssh --name wind-power --resource-group YOUR_RESOURCE_GROUP --command "rm -rf /home/site/wwwroot/*"
 
       - name: Deploy to Azure Web App using Oryx
         uses: azure/webapps-deploy@v3
