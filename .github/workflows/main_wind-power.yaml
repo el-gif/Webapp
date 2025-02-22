@@ -37,6 +37,5 @@ jobs:
         with:
           app-name: 'wind-power'
           slot-name: 'Production'
-          clean: true  # Ensures old files are removed
-          package: .  # Deploys everything in the repo without zipping
+          package: output.tar.gz
 
