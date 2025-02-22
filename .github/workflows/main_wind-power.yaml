@@ -32,12 +32,6 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_53E4C7180B2D42A4B2C6527750D01310 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F9C3187642A540819AE4F56C6B304B0C }}
 
-      - name: Clean wwwroot using Kudu API
-        run: |
-          curl -X DELETE "https://$AZURE_WEBAPP_NAME.scm.azurewebsites.net/api/vfs/site/wwwroot/" \
-                -u $AZURE_DEPLOY_USERNAME:$AZURE_DEPLOY_PASSWORD
-        
-
       - name: Deploy to Azure Web App using Oryx
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
