@@ -33,7 +33,7 @@ jobs:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F9C3187642A540819AE4F56C6B304B0C }}
 
       - name: Clean wwwroot before deployment
-        run: az webapp ssh --name wind-power --resource-group YOUR_RESOURCE_GROUP --command "rm -rf /home/site/wwwroot/*"
+        run: az webapp ssh --name wind-power --resource-group wind-power_group --command "rm -rf /home/site/wwwroot/*"
 
       - name: Deploy to Azure Web App using Oryx
         uses: azure/webapps-deploy@v3
