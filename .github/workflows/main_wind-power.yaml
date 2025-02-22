@@ -2,7 +2,7 @@
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 # More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
 
-name: Build and deploy Python app to Azure Web App - wind-power
+name: Deploy Python App to Azure Web App - wind-power
 
 on:
   push:
@@ -11,58 +11,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read # This is required for actions/checkout
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python version
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Create and start virtual environment
-        run: | # Azure App Service deployment part of the process after build, looks specifically for a virtual environment called antenv.
-          python -m venv antvenv
-          source antvenv/bin/activate
-      
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Zip artifact for deployment
-        run: zip release.zip ./* -r
-
-      - name: Upload artifact for deployment jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-app
-          path: |
-            release.zip
-            !antvenv/
-
   deploy:
     runs-on: ubuntu-latest
-    needs: build
     environment:
       name: 'Production'
       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write  # Required for authentication
+      contents: read  # Required for actions/checkout
 
     steps:
-      - name: Download artifact from build job
-        uses: actions/download-artifact@v4
-        with:
-          name: python-app
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Unzip artifact for deployment
-        run: unzip release.zip
-
-      
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -70,83 +31,12 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_53E4C7180B2D42A4B2C6527750D01310 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F9C3187642A540819AE4F56C6B304B0C }}
 
-      - name: 'Deploy to Azure Web App'
+      - name: Deploy to Azure Web App using Oryx
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
           app-name: 'wind-power'
           slot-name: 'Production'
+          clean: true  # Ensures old files are removed
+          package: .  # Deploys everything in the repo without zipping
 
-          
-
-# # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# # More GitHub Actions for Azure: https://github.com/Azure/actions
-# # More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
-
-         
-
-# name: Build and Deploy Python App to Azure Web App - wind-power
-
-# on:
-#   push:
-#     branches:
-#       - main
-#   workflow_dispatch:
-
-# jobs:
-#   build:
-#     runs-on: ubuntu-latest
-#     permissions:
-#       contents: read  # Required for actions/checkout
-
-#     steps:
-#       - name: Checkout Repository
-#         uses: actions/checkout@v4
-
-#       - name: Set up Python version
-#         uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.12'
-
-#       - name: Zip artifact for deployment
-#         run: zip release.zip ./* -r -x "venv/*"
-
-#       - name: Upload artifact for deployment jobs
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: python-app
-#           path: release.zip
-
-#   deploy:
-#     runs-on: ubuntu-latest
-#     needs: build
-#     environment:
-#       name: 'Production'
-#       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
-#     permissions:
-#       id-token: write  # Required for authentication
-#       contents: read  # Required for actions/checkout
-
-#     steps:
-#       - name: Download artifact from build job
-#         uses: actions/download-artifact@v4
-#         with:
-#           name: python-app
-
-#       - name: Unzip artifact for deployment
-#         run: unzip release.zip
-
-#       - name: Login to Azure
-#         uses: azure/login@v2
-#         with:
-#           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_E4AD64E58C2C49C79902D172785F1A15 }}
-#           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_53E4C7180B2D42A4B2C6527750D01310 }}
-#           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_F9C3187642A540819AE4F56C6B304B0C }}
-
-#       - name: Deploy to Azure Web App using Oryx
-#         uses: azure/webapps-deploy@v3
-#         id: deploy-to-webapp
-#         with:
-#           app-name: 'wind-power'
-#           slot-name: 'Production'
-#           clean: true  # Ensures old files are removed
