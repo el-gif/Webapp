@@ -21,9 +21,9 @@ import torch
 import torch.nn as nn
 import datetime
 import matplotlib.dates as mdates
+import sys
 
 # Define initial variables
-initial = 0
 lat_min, lat_max = 35, 72
 lon_min, lon_max = -25, 45
 
@@ -32,25 +32,28 @@ if os.getenv("RENDER") or os.getenv("WEBSITE_HOSTNAME"):  # for Render or Azure 
 
     root = "/home/data"
 
+    dir = os.path.join(root, "weather_forecast")
+
     # Get a list of all .grib files in the directory
-    grib_files = [f for f in os.listdir(root) if f.endswith(".grib")]
+    grib_files = [f for f in os.listdir(dir) if f.endswith(".grib")]
 
     # Count the number of GRIB files
     num_files = len(grib_files)
 
     # Handle cases where the number of grib files is not exactly 1
     if num_files != 1:
-        print(f"Error: {num_files} weather forecasts available.")
+        print(f"Error: {num_files} weather forecasts available. Stopping execution.")
         file = None  # No valid file to use
+        sys.exit() # stop execution
     else:
         file = grib_files[0]  # Set 'file' to the only GRIB file
         print(f"Using weather forecast file: {file}")
 
-    new_file_path = os.path.join(root, file)
+    new_file_path = os.path.join(dir, file)
 
 else: # if executed locally, data first have to be downloaded
 
-    root = "data/weather_forecast"
+    root = "data"
 
     # Initialise ECMWF client
     client = Client()
@@ -71,8 +74,10 @@ else: # if executed locally, data first have to be downloaded
 
     print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
 
+    save_dir = os.path.join(root, "weather_forecast")
+    os.makedirs(save_dir, exist_ok=True)
     new_file = f"forecast_{latest_date}_{latest_time}.grib"
-    new_file_path = os.path.join(root, new_file)
+    new_file_path = os.path.join(save_dir, new_file)
 
     # Check if the new forecast file is already available
     if os.path.exists(new_file_path) and overwrite == 0:
@@ -136,7 +141,7 @@ hub_height_statuses = df['Hub height status'].values
 number_wpps = len(ids)
 
 # Lade die gespeicherte Reihenfolge der Turbinentypen
-encoder = joblib.load("modelB/parameters/encoder.pkl")
+encoder = joblib.load("modelB/parameters_deployment/encoder.pkl")
 known_turbine_types = encoder.categories_[0]
 selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown"])))
 
@@ -148,8 +153,8 @@ max_year = commissioning_years.max()
 min_capacity = 0
 max_capacity = capacities.max()
 
-# Lade den Scaler
-scalers = joblib.load("modelB/parameters/scalers.pkl")
+# Lade die Scaler
+scalers = joblib.load("modelB/parameters_deployment/scalers.pkl")
 
 # Wende sie auf neue Daten an
 scaled_ages_months = scalers["ages"].transform(ages_months.reshape(-1, 1)).flatten()
@@ -176,8 +181,8 @@ class MLP(nn.Module):
         return x
     
 # Lade die Metadaten
-input_size = torch.load("modelB/parameters/input_size.pkl", weights_only=True)
-model_state_dict = torch.load("modelB/parameters/model.pth", weights_only=True)
+input_size = joblib.load("modelB/parameters_deployment/input_size.pkl")
+model_state_dict = torch.load("modelB/parameters_deployment/model.pth", weights_only=True)
 model = MLP(input_size)
 model.load_state_dict(model_state_dict)
 model.eval()
@@ -438,11 +443,7 @@ def server(input, output, session):
             heatmap = Heatmap(locations=heatmap_data, radius=10, blur=10, max_zoom=10)
             m.add(heatmap)
         
-        global initial
-        # Initialise the map with the first time step
-        if initial == 0:
-            update_map(None)
-            initial = 1
+        update_map(None)
         
         # Observe slider value changes and update map
         slider.observe(update_map, names='value')
@@ -607,7 +608,7 @@ def server(input, output, session):
         time_series_data = time_series.get()
 
         if time_series_data is not None and not time_series_data.empty: # check if user has uploaded time series to plot it
-            ax1.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1] / 1e3, label="Uploaded Time Series (MW)", color='orange')
+            ax1.plot(pd.to_datetime(time_series_data.iloc[:, 0], errors='coerce'), time_series_data.iloc[:, 1] / 1e3, label="Uploaded Time Series (MW)", color='black')
             ax1.set_title("Historical Wind Power Plant Production")
 
             ax2 = ax1.twinx()
@@ -639,7 +640,7 @@ def server(input, output, session):
 
             if turbine_type == "unknown":
                 num_categories = len(known_turbine_types)
-                one_hot_vector = np.full((1, num_categories), 1 / num_categories)
+                one_hot_vector = np.full((1, num_categories), 1 / num_categories)  # mixture of all known turbine types
                 turbine_type_repeated = np.tile(one_hot_vector, (num_steps, 1))
             else:
                 turbine_type_repeated = np.tile(encoder.transform(np.array([[turbine_type]])), (num_steps, 1))
@@ -663,8 +664,6 @@ def server(input, output, session):
             predictions_cap_factor[(predictions_cap_factor < 0)] = 0
             predictions_power = predictions_cap_factor * capacity
 
-            # Store the forecast data in the reactive `forecast_data`
-            forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions_power})
 
             # Create cubic spline interpolation
             cs = CubicSpline(valid_times_interpol, predictions_power)
@@ -673,7 +672,10 @@ def server(input, output, session):
             fine_time_grid = pd.date_range(start=valid_times_interpol[0], end=valid_times_interpol[-1], periods=500)
 
             # Get smooth interpolated values
-            smoothed_predictions = cs(fine_time_grid)
+            smoothed_predictions = np.maximum(cs(fine_time_grid), 0)
+
+            # Store the forecast data in the reactive `forecast_data`
+            forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": smoothed_predictions})
 
             # Plot original and smoothed data
             #ax1.plot(valid_times_interpol, predictions_power, 'o', label="Original Points", color="red")
@@ -795,7 +797,7 @@ def server(input, output, session):
             }
 
             # Save folder and timestamp
-            save_dir = "crowdsourced_data"
+            save_dir = os.path.join(root, "crowdsourced_data")
             os.makedirs(save_dir, exist_ok=True)
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             save_path = os.path.join(save_dir, f"time_series_{timestamp}.xlsx")
