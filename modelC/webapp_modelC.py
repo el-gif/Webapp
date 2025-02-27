@@ -21,105 +21,18 @@ import torch
 import torch.nn as nn
 import datetime
 import matplotlib.dates as mdates
-import sys
+
+
+##### Do once when programme is executed #####
 
 # Limit to Europe
 lat_min, lat_max = 35, 72
 lon_min, lon_max = -25, 45
 
-metrics = joblib.load("modelC/metrics_per_attribute/metrics.pkl")
+# Selectable time zones
+timezone_list = ["UTC-1", "UTC", "UTC+1", "UTC+2", "UTC+3"]
 
-if os.getenv("RENDER") or os.getenv("WEBSITE_HOSTNAME"):  # for Render or Azure Server
-
-    root = "/home/data"
-
-    dir = os.path.join(root, "weather_forecast")
-
-    # Get a list of all .grib files in the directory
-    grib_files = [f for f in os.listdir(dir) if f.endswith(".grib")]
-
-    # Count the number of GRIB files
-    num_files = len(grib_files)
-
-    # Handle cases where the number of grib files is not exactly 1
-    if num_files != 1:
-        print(f"Error: {num_files} weather forecasts available. Stopping execution.")
-        file = None  # No valid file to use
-        sys.exit() # stop execution
-    else:
-        file = grib_files[0]  # Set 'file' to the only GRIB file
-        print(f"Using weather forecast file: {file}")
-
-    new_file_path = os.path.join(dir, file)
-
-else: # if executed locally, data first have to be downloaded
-
-    root = "data"
-
-    # Initialise ECMWF client
-    client = Client()
-    overwrite = 0  # force overwriting of data
-    
-    # Determine the latest available forecast based on the ECMWF dissemination schedule https://confluence.ecmwf.int/display/DAC/Dissemination+schedule
-    current_utc = datetime.datetime.now(datetime.timezone.utc)
-
-    if current_utc.hour >= 21:
-        latest_time = 12  # 12 UTC run is available after 18:27 UTC + 1 hour (+ margin)
-        latest_date = current_utc.date()
-    elif current_utc.hour >= 9:
-        latest_time = 0  # 00 UTC run is available after 06:27 UTC + 1 hour (+ margin)
-        latest_date = current_utc.date()
-    else:
-        latest_time = 12
-        latest_date = (current_utc - datetime.timedelta(days=1)).date()
-
-    print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
-
-    save_dir = os.path.join(root, "weather_forecast")
-    os.makedirs(save_dir, exist_ok=True)
-    new_file = f"forecast_{latest_date}_{latest_time}.grib"
-    new_file_path = os.path.join(save_dir, new_file)
-
-    # Check if the new forecast file is already available
-    if os.path.exists(new_file_path) and overwrite == 0:
-        print(f"Latest forecast file {new_file} is already available. No download needed.")
-    else:
-        for old_file in os.listdir(root):
-            if old_file.startswith("forecast"):  # Filter files
-                old_file_path = os.path.join(root, old_file)  # Get full path
-                if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
-                    print(f"Deleting old file: {old_file}")
-                    os.remove(old_file_path)
-                    print("File deleted.")
-
-
-        # Download the new forecast file
-        print(f"Downloading new forecast file {new_file}")
-        
-        # Fetch the latest ECMWF forecast data
-        result = client.retrieve(
-            type="fc",
-            param=["100v", "100u"],  # U- and V-components of wind speed
-            target=new_file_path,
-            time=latest_time,  # Use the latest available forecast run
-            step=list(range(0, 145, 3))
-        )
-
-        print(f"New forecast file {new_file} successfully downloaded.")
-
-
-# Load the wind data (Grib2 file)
-ds = xr.open_dataset(new_file_path, engine='cfgrib')
-
-# Filter the data for Europe and extract relevant columns
-ds_filtered = ds.sel(latitude=slice(lat_max, lat_min), longitude=slice(lon_min, lon_max))
-lats = ds_filtered['latitude'].values
-lons = ds_filtered['longitude'].values
-u = ds_filtered['u100'].values
-v = ds_filtered['v100'].values
-valid_times = ds_filtered['valid_time'].values
-
-# Filter the data for Europe and extract relevant columns
+# Filter data for Europe and extract relevant columns
 df = pd.read_parquet("data/data_hosting/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
 df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
 ids = df['ID'].values
@@ -141,12 +54,6 @@ commissioning_date_statuses = df['Commissioning date status'].values
 hub_height_statuses = df['Hub height status'].values
 number_wpps = len(ids)
 
-# Lade die gespeicherte Reihenfolge der Turbinentypen
-encoders = joblib.load("modelC/parameters_deployment/encoders.pkl")
-encoder = encoders[0] # encoders are identical for all lead times (checked previously)
-known_turbine_types = encoder.categories_[0]
-selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown"])))
-
 hub_height_min = math.floor(0.9 * df['Hub height'].min())
 hub_height_max = math.ceil(1.1 * df['Hub height'].max())
 commissioning_years = df['Commissioning date'].str.split('/').str[0].astype(int)
@@ -155,9 +62,7 @@ max_year = commissioning_years.max()
 min_capacity = 0
 max_capacity = capacities.max()
 
-# Lade die Scaler
-scalers = joblib.load("modelC/parameters_deployment/scalers.pkl")
-
+# Model definition
 class MLP(nn.Module):
     def __init__(self, input_size):
         super(MLP, self).__init__()
@@ -177,8 +82,17 @@ class MLP(nn.Module):
         x = self.dropout(x)
         x = self.fc4(x)
         return x
-    
-# Lade die Metadaten
+
+# Load elements
+metrics = joblib.load("modelC/metrics_per_attribute/metrics.pkl")
+
+encoders = joblib.load("modelC/parameters_deployment/encoders.pkl")
+encoder = encoders[0] # encoders are identical for all lead times (checked previously)
+known_turbine_types = encoder.categories_[0]
+selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown", "custom"])))
+
+scalers = joblib.load("modelC/parameters_deployment/scalers.pkl")
+
 input_sizes = joblib.load("modelC/parameters_deployment/input_sizes.pkl")
 input_size = input_sizes[0] # input sizes are identical for all lead times (checked previously)
 models = {}
@@ -188,16 +102,6 @@ for lead_time, model_state_dict in model_state_dicts.items():
     model_lead_time.load_state_dict(model_state_dict)
     model_lead_time.eval()
     models[lead_time] = model_lead_time
-print("Models loaded")
-
-# Calculate total wind speed and convert to 3D array
-total_selection = np.array([np.sqrt(u_value**2 + v_value**2) for u_value, v_value in zip(u, v)])
-
-start_time = valid_times[0]
-end_time = valid_times[-1]
-total_hours = int((end_time - start_time) / np.timedelta64(1, 'h'))
-step_size = np.timedelta64(3, 'h') # imposed by ECMWF open weather forecast
-step_size_hours = int(step_size / np.timedelta64(1, 'h'))
 
 example_data = pd.read_parquet("data/data_hosting/example_time_series.parquet")
 example_dates = example_data['Date']
@@ -207,6 +111,7 @@ example_production = example_data['Production (kW)']
 with open("modelC/documentation.html", "r", encoding="utf-8") as f:
     documentation_html = f.read()
 
+# Construct the webapp
 app_ui = ui.page_navbar(
     ui.nav_panel(
         "Spatial Forecast",
@@ -216,9 +121,11 @@ app_ui = ui.page_navbar(
         "Temporal Forecast",
         ui.row(
             ui.column(2,  # Left column for input fields
+                ui.input_select("selected_timezone", "Select Timezone", choices=timezone_list, selected="UTC"),
                 ui.input_slider("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2, step=0.01),
                 ui.input_slider("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.01),
                 ui.input_select("turbine_type", "Turbine Type", choices=selectable_turbine_types.tolist(), selected=known_turbine_types[0]),
+                ui.div(id="custom_turbine_container"),
                 ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.1),
                 ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1, sep=''),
                 ui.input_slider("commissioning_date_month", "Commissioning Date (Month)", min=1, max=12, value=6, step=1),
@@ -260,8 +167,86 @@ app_ui = ui.page_navbar(
     title="Wind Power Forecast"
 )
 
-# server function
+# Server function
 def server(input, output, session):
+
+    ##### Upon start of a new session #####
+
+    if os.getenv("RENDER") or os.getenv("WEBSITE_HOSTNAME"):  # for Render or Azure Server
+        root = "/home/data"
+    else:
+        root = "data"
+
+    # Initialise ECMWF client
+    client = Client()
+    overwrite = 0  # force overwriting of data
+    
+    # Determine the latest available forecast based on the ECMWF dissemination schedule https://confluence.ecmwf.int/display/DAC/Dissemination+schedule
+    current_utc = datetime.datetime.now(datetime.timezone.utc)
+
+    if current_utc.hour >= 21:
+        latest_time = 12  # 12 UTC run is available after 18:27 UTC + 1 hour (+ margin)
+        latest_date = current_utc.date()
+    elif current_utc.hour >= 9:
+        latest_time = 0  # 00 UTC run is available after 06:27 UTC + 1 hour (+ margin)
+        latest_date = current_utc.date()
+    else:
+        latest_time = 12
+        latest_date = (current_utc - datetime.timedelta(days=1)).date()
+
+    print(f"Latest available forecast run: {latest_date}, {latest_time} UTC")
+
+    save_dir = os.path.join(root, "weather_forecast")
+    os.makedirs(save_dir, exist_ok=True)
+    new_file = f"forecast_{latest_date}_{latest_time}.grib"
+    new_file_path = os.path.join(save_dir, new_file)
+
+    # Check if the new forecast file is already available
+    if os.path.exists(new_file_path) and overwrite == 0:
+        print(f"Latest forecast file {new_file} is already available. No download needed.")
+    else:
+        for old_file in os.listdir(root):
+            if old_file.startswith("forecast"):  # Filter files
+                old_file_path = os.path.join(root, old_file)  # Get full path
+                if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
+                    print(f"Deleting old file: {old_file}")
+                    os.remove(old_file_path)
+                    print("File deleted.")
+
+        # Download the new forecast file
+        print(f"Downloading new forecast file {new_file}")
+        
+        # Fetch the latest ECMWF forecast data
+        result = client.retrieve(
+            type="fc",
+            param=["100v", "100u"],  # U- and V-components of wind speed
+            target=new_file_path,
+            time=latest_time,  # Use the latest available forecast run
+            step=list(range(0, 145, 3))
+        )
+
+        print(f"New forecast file {new_file} successfully downloaded.")
+
+    # Load the wind data (Grib2 file)
+    ds = xr.open_dataset(new_file_path, engine='cfgrib')
+
+    # Filter the data for Europe and extract relevant columns
+    ds_filtered = ds.sel(latitude=slice(lat_max, lat_min), longitude=slice(lon_min, lon_max))
+    lats = ds_filtered['latitude'].values
+    lons = ds_filtered['longitude'].values
+    u = ds_filtered['u100'].values
+    v = ds_filtered['v100'].values
+    valid_times = ds_filtered['valid_time'].values
+
+    # Calculate total wind speed and convert to 3D array
+    total_selection = np.array([np.sqrt(u_value**2 + v_value**2) for u_value, v_value in zip(u, v)])
+
+    start_time = valid_times[0]
+    end_time = valid_times[-1]
+    total_hours = int((end_time - start_time) / np.timedelta64(1, 'h'))
+    step_size = np.timedelta64(3, 'h') # imposed by ECMWF open weather forecast
+    step_size_hours = int(step_size / np.timedelta64(1, 'h'))
+
 
     ##### Page 1 #####
 
@@ -467,7 +452,7 @@ def server(input, output, session):
                 if not all(col in time_series_data.columns for col in required_columns):
                     ui.notification_show(f"The Excel file is missing required columns. Please ensure it includes {required_columns}.", duration=None)
                     return
-
+                
                 time_series.set(time_series_data)  # Calls output_graph function
                 ui.update_action_button("action_button", label="Contribute Data")
                 button_status.set('contribute')
@@ -547,17 +532,17 @@ def server(input, output, session):
         commissioning_date_month = input.commissioning_date_month()
         capacity = input.capacity()
 
-        if hub_height_status.get() == 0:
-            hub_height_display = f"{hub_height:.2f} m"
-        else:
+        if hub_height_status.get() == 1:
             hub_height_display = "nan"
+        else: # hub_height_status.get() == 0 or None (custom configuration)
+            hub_height_display = f"{hub_height:.2f} m"
 
-        if commissioning_date_status.get() == 0:
-            commissioning_date_display = f"{commissioning_date_year}/{commissioning_date_month}"
+        if commissioning_date_status.get() == 2:
+            commissioning_date_display = "nan"
         elif commissioning_date_status.get() == 1:
             commissioning_date_display = str(commissioning_date_year)
-        else:
-            commissioning_date_display = "nan"
+        else: # commissioning_date_status.get() == 0 or None (custom configuration)
+            commissioning_date_display = f"{commissioning_date_year}/{commissioning_date_month}"
 
         # Return configuration summary text
         summary_html = (
@@ -575,6 +560,19 @@ def server(input, output, session):
 
         )
         return ui.HTML(summary_html)
+    
+    # Dynamically insert/remove the custom text input field
+    @reactive.effect
+    @reactive.event(input.turbine_type)
+    def _():
+        if input.turbine_type() == "custom":
+            ui.insert_ui(
+                ui.input_text("custom_turbine", "Enter Custom Turbine Type for Crowdsourcing", value="", placeholder="Type here..."),
+                selector="#custom_turbine_container",
+                multiple=False
+            )
+        else:
+            ui.remove_ui("div:has(> #custom_turbine)", multiple=False)  # Remove wrapper div and input
 
     # Plot forecasted production over time
     @render.plot
@@ -597,6 +595,23 @@ def server(input, output, session):
             y_min, y_max = ax1.get_ylim()
             ax2.set_ylim(y_min / capacity, y_max / capacity)
             ax2.set_ylabel("Capacity Factor")
+
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))
+
+            plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right') # Rotate the labels for better fit
+
+            ax1.grid(True)
+            plt.tight_layout()
+            return fig
+        
+        elif input.turbine_type() == "custom": # Return an empty plot with a message instead of a string
+            fig, ax = plt.subplots(figsize=(8, 4))
+            ax.text(0.5, 0.5, "Individualise a WPP with a custom turbine type and crowdsource data for this configuration.", fontsize=12, ha='center', va='center')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_frame_on(False)
+            return fig
+        
         else: # Retrieve inputs
             lat_plant = input.lat()
             lon_plant = input.lon()
@@ -653,55 +668,67 @@ def server(input, output, session):
             predictions_power = np.array([p.item() for p in predictions_power]).reshape(-1, 1)  # Shape (49, 1)
             scaled_stds = scaled_stds.reshape(-1, 1)  # Ensure the same shape (49, 1)
 
+            # Store the forecast data in the reactive `forecast_data`
+            forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions_power})
+
             # Define confidence bounds (95% confidence interval)
             k = 1.96  # For 95% confidence interval
             upper_bound = np.minimum(predictions_power + k * scaled_stds, np.full(num_steps, capacity).reshape(-1, 1))  # Avoid exceeding capacity
             lower_bound = np.maximum(predictions_power - k * scaled_stds, 0)  # Ensure no negative values
 
-            # Create cubic spline interpolation
-            cs = CubicSpline(valid_times, predictions_power)
-            cs_upper = CubicSpline(valid_times, upper_bound)
-            cs_lower = CubicSpline(valid_times, lower_bound)
+            # Convert valid_times to pandas DatetimeIndex (assuming it is in UTC)
+            valid_times_utc = pd.to_datetime(valid_times, utc=True)
 
-            # Generate a finer time grid for smooth plotting
-            fine_time_grid = pd.date_range(start=valid_times[0], end=valid_times[-1], periods=500)
+            # Convert user's selected timezone (e.g., "UTC-1") to an integer offset
+            timezone_str = input.selected_timezone()  # Example: "UTC-3"
+            timezone_offset = int(timezone_str.replace("UTC", "").lstrip("+") or 0)
 
-            # Get smooth interpolated values
-            smoothed_predictions = np.maximum(cs(fine_time_grid), 0).flatten()
-            smoothed_upper = cs_upper(fine_time_grid).flatten()
-            smoothed_lower = cs_lower(fine_time_grid).flatten()
+            # Apply time shift (convert offset to timedelta)
+            time_shift = np.timedelta64(timezone_offset, 'h')
+            valid_times_local = valid_times_utc + time_shift  # Shifted time for plotting
+            valid_times_local = valid_times_local.to_numpy(dtype="datetime64[ns]")
 
-            # Store the forecast data in the reactive `forecast_data`
-            forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions_power})
+            # Generate a fine time grid in local time
+            fine_time_grid_local = pd.date_range(start=valid_times_local[0], end=valid_times_local[-1], periods=500)
+
+            # Use numeric values in CubicSpline
+            cs = CubicSpline(valid_times_local, predictions_power)
+            cs_upper = CubicSpline(valid_times_local, upper_bound)
+            cs_lower = CubicSpline(valid_times_local, lower_bound)
+
+            # Get interpolated values
+            smoothed_predictions = np.maximum(cs(fine_time_grid_local), 0).flatten()
+            smoothed_upper = cs_upper(fine_time_grid_local).flatten()
+            smoothed_lower = cs_lower(fine_time_grid_local).flatten()
+
+            # Adjust the current time (from system UTC to user-selected timezone)
+            current_time = pd.Timestamp.now(tz="UTC") + time_shift  # Shift current time
+
+            # Update the plot with the new time axis
+            ax1.plot(fine_time_grid_local, smoothed_predictions, '-', label="Prediction", color="blue")
+            ax1.fill_between(fine_time_grid_local, smoothed_lower, smoothed_upper, color='lightblue', alpha=0.4, label="95% Confidence Interval")
+            ax1.axvline(x=current_time, color='red', linestyle='--', label='Current Time', linewidth=1.5)
 
             # Plot original and smoothed data
-            #ax1.plot(valid_times, predictions_power, 'o', label="Original Points", color="red")
-            ax1.plot(fine_time_grid, smoothed_predictions, '-', label="Prediction", color="blue")
+            #ax1.plot(valid_times_local, predictions_power, 'o', label="Original Points", color="red")
             ax1.set_xlabel("Date")
             ax1.set_ylabel("Production (MW)")
             ax1.set_ylim(bottom=0)
             ax1.set_title("Forecasted Production with 95 % Confidence Interval")
-
-            # Fill between confidence bounds
-            ax1.fill_between(fine_time_grid, smoothed_lower, smoothed_upper, color='lightblue', alpha=0.4, label="95% Confidence Interval")
-
-            # Add a red dotted vertical line at the current time
-            current_time = pd.Timestamp.now()  # or use a specific time if needed
-            ax1.axvline(x=current_time, color='red', linestyle='--', label='Capacity', linewidth=1.5)
 
             ax2 = ax1.twinx()
             y_min, y_max = ax1.get_ylim()
             ax2.set_ylim(y_min / capacity, y_max / capacity)
             ax2.set_ylabel("Capacity Factor")
 
-        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))
 
-        # Rotate the labels for better fit
-        plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            # Rotate the labels for better fit
+            plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
-        ax1.grid(True)
-        plt.tight_layout()
-        return fig  # Returning the figure will embed it in the app
+            ax1.grid(True)
+            plt.tight_layout()
+            return fig
 
     def download_forecast_data():
 
@@ -747,8 +774,16 @@ def server(input, output, session):
         # Add headers for date, wind speed, and production
         ws_forecast.append(["Date", "Wind Speed (m/s)", "Production (MW)"])
 
+        # Extract user's timezone offset (e.g., "UTC-3" → -3)
+        timezone_str = input.selected_timezone()
+        timezone_offset = int(timezone_str.replace("UTC", "").lstrip("+") or 0)
+
+        # Convert user-local timestamps back to UTC
+        time_shift = np.timedelta64(timezone_offset, 'h')
+        valid_times_local = valid_times + time_shift
+
         # Add production data per time step
-        for time, wind_speed, production in zip(valid_times, wind_speeds, productions):
+        for time, wind_speed, production in zip(valid_times_local, wind_speeds, productions):
             time_as_datetime = pd.to_datetime(time).to_pydatetime()
             ws_forecast.append([time_as_datetime, wind_speed, production])  # Ensure wind speed and production values are correctly added
 
@@ -779,6 +814,13 @@ def server(input, output, session):
         else: # button_status.get() == "contribute"
             time_series_data = time_series.get()
 
+            timezone_str = input.selected_timezone()
+            timezone_offset = int(timezone_str.replace("UTC", "").lstrip("+") or 0)
+
+            # Convert user-local timestamps back to UTC
+            time_shift = np.timedelta64(-timezone_offset, 'h')
+            time_series_data["Date"] = time_series_data["Date"] + time_shift
+
             # Notify the user that the file is being saved
             ui.notification_show(
                 "Thank you for uploading your time series. It will be checked for plausibility and possibly used to improve the model at the next training.",
@@ -789,7 +831,7 @@ def server(input, output, session):
             metadata = {
                 "Latitude": input.lat(),
                 "Longitude": input.lon(),
-                "Turbine Type": input.turbine_type(),
+                "Turbine Type": input.custom_turbine() if input.turbine_type() == 'custom' else input.turbine_type(),
                 "Hub Height": input.hub_height(),
                 "Commissioning Year": input.commissioning_date_year(),
                 "Commissioning Month": input.commissioning_date_month(),

@@ -565,17 +565,17 @@ def server(input, output, session):
         commissioning_date_month = input.commissioning_date_month()
         capacity = input.capacity()
 
-        if hub_height_status.get() == 0:
-            hub_height_display = f"{hub_height:.2f} m"
-        else:
+        if hub_height_status.get() == 1:
             hub_height_display = "nan"
+        else: # hub_height_status.get() == 0 or None (custom configuration)
+            hub_height_display = f"{hub_height:.2f} m"
 
-        if commissioning_date_status.get() == 0:
-            commissioning_date_display = f"{commissioning_date_year}/{commissioning_date_month}"
+        if commissioning_date_status.get() == 2:
+            commissioning_date_display = "nan"
         elif commissioning_date_status.get() == 1:
             commissioning_date_display = str(commissioning_date_year)
-        else:
-            commissioning_date_display = "nan"
+        else: # commissioning_date_status.get() == 0 or None (custom configuration)
+            commissioning_date_display = f"{commissioning_date_year}/{commissioning_date_month}"
 
         # Return configuration summary text
         summary_html = (
