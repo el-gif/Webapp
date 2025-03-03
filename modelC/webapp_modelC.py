@@ -5,7 +5,7 @@ from openpyxl import Workbook
 from shiny import ui, App, reactive, render
 from shinywidgets import render_widget, output_widget
 from ipyleaflet import Map, Marker, MarkerCluster, WidgetControl, FullScreenControl, AwesomeIcon, Heatmap, ScaleControl
-from ipywidgets import SelectionSlider, Play, VBox, jslink, Layout, HTML  # pip install ipywidgets==7.6.5, because version 8 has an issue with popups (https://stackoverflow.com/questions/75434737/shiny-for-python-using-add-layer-for-popus-from-ipyleaflet)
+from ipywidgets import SelectionSlider, Play, VBox, HBox, jslink, Layout, HTML, Dropdown, Text, Checkbox # pip install ipywidgets==7.6.5, because version 8 has an issue with popups (https://stackoverflow.com/questions/75434737/shiny-for-python-using-add-layer-for-popus-from-ipyleaflet)
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -32,16 +32,56 @@ lon_min, lon_max = -25, 45
 # Selectable time zones
 timezone_list = ["UTC-1", "UTC", "UTC+1", "UTC+2", "UTC+3"]
 
+country_centers = {
+    'Austria': [47.5162, 14.5501],
+    'Belarus': [53.9006, 27.5590],
+    'Belgium': [50.8503, 4.3517],
+    'Bosnia and Herzegovina': [44.1741, 17.9721],
+    'Bulgaria': [42.7339, 25.4858],
+    'Croatia': [45.1000, 15.2000],
+    'Czech Republic': [49.8175, 15.4730],
+    'Denmark': [56.2639, 9.5018],
+    'Estonia': [58.5953, 25.0136],
+    'Faroe Islands': [62.0000, -6.7833],
+    'Finland': [64.0000, 26.0000],
+    'France': [46.6034, 1.8883],
+    'Germany': [51.1657, 10.4515],
+    'Greece': [39.0000, 22.0000],
+    'Hungary': [47.1625, 19.5033],
+    'Iceland': [64.9631, -19.0208],
+    'Ireland': [53.4129, -8.2439],
+    'Italy': [41.8719, 12.5674],
+    'Kosovo': [42.6026, 20.9029],
+    'Latvia': [56.8796, 24.6032],
+    'Lithuania': [55.1694, 23.8813],
+    'Luxembourg': [49.6117, 6.1319],
+    'Montenegro': [42.7087, 19.3744],
+    'Netherlands': [52.1326, 5.2913],
+    'North Macedonia': [41.6086, 21.7453],
+    'Norway': [60.4720, 8.4689],
+    'Poland': [52.0000, 19.0000],
+    'Portugal': [39.3999, -8.2245],
+    'Romania': [45.9432, 24.9668],
+    'Serbia': [44.0165, 21.0059],
+    'Slovakia': [48.6690, 19.6990],
+    'Slovenia': [46.1512, 14.9955],
+    'Spain': [40.4637, -3.7492],
+    'Sweden': [62.0000, 15.0000],
+    'Switzerland': [46.8182, 8.2275],
+    'Ukraine': [48.3794, 31.1656],
+    'United-Kingdom': [55.3781, -3.4360]
+}
+
 # Filter data for Europe and extract relevant columns
 df = pd.read_parquet("data/data_hosting/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
-df = df.iloc[::100] # only every 10th wpp is possible to alleviate computational and storage burden, not much more
+#df = df.iloc[::100] # only every 10oth wpp
 ids = df['ID'].values
 countries = df['Country'].values
 project_names = df['Name'].values
 lats_plants = df['Latitude'].values
 lons_plants = df['Longitude'].values
 manufacturers = df['Manufacturer'].values
-turbine_types = df["Turbine"].replace(["nan", np.nan], "unknown").values
+turbine_types = df['Turbine'].replace(["nan", np.nan], "unknown for model").values
 hub_heights = df['Hub height'].values
 numbers_of_turbines = df['Number of turbines'].values
 capacities = df['Total power'].values / 1e3 # kW to MW as the model has been trained on and the capacity scaler has been fitted
@@ -52,7 +92,9 @@ commissioning_dates = df['Commissioning date'].values
 ages_months = df['Ages months'].values
 commissioning_date_statuses = df['Commissioning date status'].values
 hub_height_statuses = df['Hub height status'].values
-number_wpps = len(ids)
+links = df['Link'].values
+
+country_set = sorted(set(countries))
 
 hub_height_min = math.floor(0.9 * df['Hub height'].min())
 hub_height_max = math.ceil(1.1 * df['Hub height'].max())
@@ -89,7 +131,10 @@ metrics = joblib.load("modelC/metrics_per_attribute/metrics.pkl")
 encoders = joblib.load("modelC/parameters_deployment/encoders.pkl")
 encoder = encoders[0] # encoders are identical for all lead times (checked previously)
 known_turbine_types = encoder.categories_[0]
-selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown", "custom"])))
+selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown for model"])))
+unknown_turbine_types = set([turbine_type for turbine_type in turbine_types if turbine_type not in known_turbine_types])
+unknown_turbine_types.remove('unknown for model')
+unknown_turbine_types = sorted(list(unknown_turbine_types))
 
 scalers = joblib.load("modelC/parameters_deployment/scalers.pkl")
 
@@ -121,12 +166,11 @@ app_ui = ui.page_navbar(
         "Temporal Forecast",
         ui.row(
             ui.column(2,  # Left column for input fields
-                ui.input_select("selected_timezone", "Select Timezone", choices=timezone_list, selected="UTC"),
-                ui.input_slider("lat", "Turbine Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2, step=0.01),
-                ui.input_slider("lon", "Turbine Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.01),
+                ui.input_slider("lat", "Latitude", min=lat_min, max=lat_max, value=(lat_min + lat_max) / 2, step=0.01),
+                ui.input_slider("lon", "Longitude", min=lon_min, max=lon_max, value=(lon_min + lon_max) / 2, step=0.01),
                 ui.input_select("turbine_type", "Turbine Type", choices=selectable_turbine_types.tolist(), selected=known_turbine_types[0]),
-                ui.div(id="custom_turbine_container"),
-                ui.input_slider("hub_height", "Turbine Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.1),
+                ui.div(id="unknown_turbine_container"),
+                ui.input_slider("hub_height", "Hub Height (m)", min=hub_height_min, max=hub_height_max, value=(hub_height_min + hub_height_max) / 2, step=0.1),
                 ui.input_slider("commissioning_date_year", "Commissioning Date (Year)", min=min_year, max=max_year, value=(min_year + max_year) / 2, step=1, sep=''),
                 ui.input_slider("commissioning_date_month", "Commissioning Date (Month)", min=1, max=12, value=6, step=1),
                 ui.input_slider("capacity", "Capacity (MW)", min=min_capacity, max=max_capacity, value=(min_capacity + max_capacity) / 2, step=0.01),
@@ -149,6 +193,15 @@ app_ui = ui.page_navbar(
     ui.nav_panel(
         "Documentation",
         ui.HTML(documentation_html)
+    ),
+    ui.nav_panel(
+        "Timezone Settings",
+        ui.input_select(
+            "selected_timezone",  # Unique ID for global timezone selector
+            "Select Timezone",
+            choices=timezone_list,
+            selected="UTC"
+        )
     ),
     ui.head_content(
         ui.tags.link(rel="icon", type="image/png", href="/WPP_icon2.png"), # image source: https://www.kroschke.com/windsack-set-inkl-korb-und-huelle-korbdurchmesser-650mm-laenge-3500mm--m-8509.html
@@ -205,9 +258,9 @@ def server(input, output, session):
     if os.path.exists(new_file_path) and overwrite == 0:
         print(f"Latest forecast file {new_file} is already available. No download needed.")
     else:
-        for old_file in os.listdir(root):
+        for old_file in os.listdir(save_dir):
             if old_file.startswith("forecast"):  # Filter files
-                old_file_path = os.path.join(root, old_file)  # Get full path
+                old_file_path = os.path.join(save_dir, old_file)  # Get full path
                 if os.path.isfile(old_file_path):  # Ensure it's a file (not a folder)
                     print(f"Deleting old file: {old_file}")
                     os.remove(old_file_path)
@@ -250,7 +303,7 @@ def server(input, output, session):
 
     ##### Page 1 #####
 
-    # Define reactive values for storing additional information
+    # Define reactive values
     project_name = reactive.Value(None)
     operator = reactive.Value(None)
     owner = reactive.Value(None)
@@ -298,7 +351,7 @@ def server(input, output, session):
         # while is_programmatic_change is already false --> output_summary will be reset --> to avoid
         ui.update_slider("lat", value=round(lat, 2))
         ui.update_slider("lon", value=round(lon, 2))
-        ui.update_select("turbine_type", selected=turbine_type if turbine_type in selectable_turbine_types else "unknown")
+        ui.update_select("turbine_type", selected=turbine_type if turbine_type in selectable_turbine_types else "unknown for model")
         ui.update_slider("hub_height", value=round(hub_height, 1))
         ui.update_slider("commissioning_date_year", value=commissioning_date_year)
         ui.update_slider("commissioning_date_month", value=commissioning_date_month)
@@ -309,111 +362,218 @@ def server(input, output, session):
 
     @render_widget
     def map():
+
+        # Get the user-selected timezone directly
+        timezone_str = input.selected_timezone()
+        timezone_offset = int(timezone_str.replace("UTC", "").lstrip("+") or 0)
+
+        # Apply the time shift from UTc to local time
+        time_shift = np.timedelta64(timezone_offset, 'h')
+        valid_times_local = valid_times + time_shift  # Update timestamps
+
+        # Create the map
         m = Map(
             center=[(lat_min + lat_max) / 2, (lon_min + lon_max) / 2],
             zoom=5,
             layout=Layout(width='100%', height='90vh'),
             scroll_wheel_zoom=True
         )
-
+        
         scale = ScaleControl(position="bottomleft", imperial=False)
         m.add(scale)
 
-        markers = []
-        for name, capacity, number_of_turbines, turbine_type, operator, id, lat, lon in zip(project_names, capacities, numbers_of_turbines, turbine_types, operators, ids, lats_plants, lons_plants):
-            
-            popup_content = HTML(
-                f"<strong>Project Name:</strong> {name}<br>"
-                f"<strong>Capacity:</strong> {capacity} MW<br>"
-                f"<strong>Number of turbines:</strong> {number_of_turbines}<br>"
-                f"<strong>Turbine Type:</strong> {turbine_type}<br>"
-                f"<strong>Operator:</strong> {operator}<br>"
-                f"<strong>Wind speed forecast:</strong> select forecast step<br>"
-                f"<strong>Production forecast:</strong> select forecast step<br>"
-                f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
-            )
+        # Country filter dropdown as an ipywidgets component, because displaying all WPPs is too resource-heavy
+        country_dropdown = Dropdown(
+            options=["All", "Select a Country"] + sorted(set(countries)),
+            value="Select a Country",
+            description="Country:",
+            layout=Layout(width="300px", object_position="left")
+        )
 
-            marker = Marker(
-                location=(lat, lon),
-                popup=popup_content,
-                rise_offset=True,
-                draggable=False
-            )
-            markers.append(marker)
+        # Create a search input box for WPP names
+        search_box = Text(
+            placeholder="Search WPP by name...",
+            layout=Layout(width="200px")
+        )
 
-        # Cluster erstellen und zur Karte hinzufügen
-        marker_cluster = MarkerCluster(markers=markers)
-        m.add(marker_cluster)
+        # Checkbox for toggling the heatmap
+        heatmap_checkbox = Checkbox(
+            value=True,  # Default: Heatmap is visible
+            description="Show Heatmap",
+            layout=Layout(object_position="left")
+        )
 
         # Slider for time steps
-        play = Play(min=0, max=total_hours, step=step_size_hours, value=0, interval=500, description='Time Step')
-        slider = SelectionSlider(options=valid_times, value=valid_times[0], description='Time')
+        play = Play(min=0, max=total_hours, step=1, value=0, interval=500, description='Time Step')
+        valid_times_dt = pd.to_datetime(valid_times_local)
+        formatted_times = [t.strftime('%H:%M %d/%m') for t in valid_times_dt] # known bug: SelectionSlider gives too little place for values --> year can't be displayed
+        slider = SelectionSlider(options=formatted_times, value=formatted_times[0], description='Time', layout=Layout(width="300px"))
         jslink((play, 'value'), (slider, 'index'))
-        slider_box = VBox([play, slider])
-        m.add(WidgetControl(widget=slider_box, position='topright'))
+        slider_box = HBox([play, slider], layout=Layout(object_position="center", margin="0px 0px 0px 95px"))
 
-        # Map update function based on slider
-        def update_map(change):
-            time_step = slider.value
-            lead_time = int((time_step - start_time) / np.timedelta64(1, 'h'))
-            step_index = int(lead_time / step_size_hours)
+        # Organize widgets horizontally
+        filter_controls = HBox([country_dropdown, search_box], layout=Layout(margin="5px"))
+        all_controls = VBox([filter_controls, slider_box, heatmap_checkbox])
+        
+        m.add(WidgetControl(widget=all_controls, position='topright'))
 
-            spatial_interpolator = interp2d(lons, lats, total_selection[step_index], kind='cubic')
-            wind_speeds_at_points = np.array([spatial_interpolator(lon, lat)[0] for lon, lat in zip(lons_plants, lats_plants)])
+        def update_marker_locations(change):
 
-            # scaling
-            scaled_ages_months = scalers[lead_time]["ages"].transform(ages_months.reshape(-1, 1)).flatten()
-            scaled_hub_heights = scalers[lead_time]["hub_heights"].transform(hub_heights.reshape(-1, 1)).flatten()
-            scaled_wind_speeds_at_points = scalers[lead_time]["winds"].transform(wind_speeds_at_points.reshape(-1, 1)).flatten()
+            selected_country = country_dropdown.value
+            search_query = search_box.value.lower().strip()
 
-            turbine_types_onehot = np.zeros((number_wpps, len(known_turbine_types)))
-            for i, turbine_type in enumerate(turbine_types):
-                if turbine_type not in known_turbine_types:
-                    turbine_types_onehot[i] = np.full(len(known_turbine_types), 1.0 / len(known_turbine_types))
-                else:
-                    turbine_types_onehot[i] = encoder.transform(np.array([[turbine_type]])).flatten()
+            # Adjust center without changing zoom
+            if selected_country in country_centers:
+                m.center = country_centers[selected_country]  # Set center to selected country
+        
+            # Filter WPPs based on the selected country
+            if selected_country == "All":
+                filtered_indices = range(len(ids))  # Show all WPPs
+            elif selected_country == "Select a Country":
+                filtered_indices = []  # show nothing
+            else:
+                filtered_indices = [i for i, country in enumerate(countries) if country == selected_country]
 
-            all_input_features = np.hstack([
-                turbine_types_onehot,
-                scaled_hub_heights.reshape(-1, 1),
-                scaled_ages_months.reshape(-1, 1),
-                scaled_wind_speeds_at_points.reshape(-1, 1)
-            ])
+            # Apply search filtering based on name
+            if search_query:
+                filtered_indices = [i for i in filtered_indices if search_query in project_names[i].lower()]
 
-            input_tensor = torch.tensor(all_input_features, dtype=torch.float32)
-
-            model = models[lead_time]
-            with torch.no_grad():
-                predictions = np.minimum(model(input_tensor).numpy().flatten() * capacities, capacities)
-
-            predictions[(predictions < 0)] = 0
+            number_wpps = len(filtered_indices)
             
-            # Update marker pop-ups with production values
-            for marker, name, capacity, number_of_turbines, turbine_type, operator, wind_speed, prediction, id in zip(marker_cluster.markers, project_names, capacities, numbers_of_turbines, turbine_types, operators, wind_speeds_at_points, predictions, ids):
-                marker.popup.value = \
-                    f"<strong>Project Name:</strong> {name}<br>"\
-                    f"<strong>Capacity:</strong> {capacity} MW<br>"\
-                    f"<strong>Number of Turbines:</strong> {number_of_turbines}<br>"\
-                    f"<strong>Turbine Type:</strong> {turbine_type}<br>"\
-                    f"<strong>Operator:</strong> {operator}<br>"\
-                    f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
-                    f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
-                    f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
-                
-            # Prepare heatmap data for "operating" wind plants
-            heatmap_data = [(lat, lon, prod) for lat, lon, prod in zip(lats_plants, lons_plants, predictions)]
+            filtered_lats = [lats_plants[i] for i in filtered_indices]
+            filtered_lons = [lons_plants[i] for i in filtered_indices]
+            filtered_ids = [ids[i] for i in filtered_indices]
+            filtered_names = [project_names[i] for i in filtered_indices]
+            filtered_capacities = [capacities[i] for i in filtered_indices]
+            filtered_numbers = [numbers_of_turbines[i] for i in filtered_indices]
+            filtered_turbines = [turbine_types[i] for i in filtered_indices]
+            filtered_operators = [operators[i] for i in filtered_indices]
+            filtered_ages = [ages_months[i] for i in filtered_indices]
+            filtered_hub_heights = [hub_heights[i] for i in filtered_indices]
+            filtered_links = [links[i] for i in filtered_indices]
 
-            # Remove existing heatmap layer if any and add new one
+            markers = []
+            for name, capacity, number_of_turbines, turbine_type, operator, id, lat, lon, link in zip(filtered_names, filtered_capacities, filtered_numbers, filtered_turbines, filtered_operators, filtered_ids, filtered_lats, filtered_lons, filtered_links):
+                
+                popup_content = HTML(
+                    f"<strong>Project Name:</strong> {name}<br>"
+                    f"<strong>Capacity:</strong> {capacity} MW<br>"
+                    f"<strong>Number of turbines:</strong> {number_of_turbines}<br>"
+                    f"<strong>Turbine Type:</strong> {turbine_type}<br>"
+                    f"<strong>Operator:</strong> {operator}<br>"
+                    f"<strong>Wind speed forecast:</strong> select forecast step<br>"
+                    f"<strong>Production forecast:</strong> select forecast step<br>"
+                    f"<strong><a href='{link}' target='_blank' style='color:blue; text-decoration:underline;'>Link to The Wind Power</a></strong><br>"
+                    f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
+                )
+
+                marker = Marker(
+                    location=(lat, lon),
+                    popup=popup_content,
+                    rise_offset=True,
+                    draggable=False
+                )
+                markers.append(marker)
+
+            # Remove existing marker cluster and add new one
             for layer in m.layers:
-                if isinstance(layer, Heatmap):
+                if isinstance(layer, MarkerCluster):
                     m.remove(layer)
-            heatmap = Heatmap(locations=heatmap_data, radius=10, blur=10, max_zoom=10)
-            m.add(heatmap)
-        
-        update_map(None)
-        
-        # Observe slider value changes and update map
-        slider.observe(update_map, names='value')
+            marker_cluster = MarkerCluster(markers=markers)
+            m.add(marker_cluster)
+
+            # Update marker popups based with forecast values based on slider value
+            def update_marker_popups(change):
+
+                # Convert the selected slider value (HH:MM dd/mm) back to datetime
+                time_step_local = pd.to_datetime(slider.value, format='%H:%M %d/%m')  # Convert to datetime
+
+                # convert to UTC
+                time_step = time_step_local - time_shift
+
+                # next dozen of lines only necessary because year couldn't be stored in SelectionSlider above because would be cut off when displayed
+                # Get the current year in UTC
+                current_utc = datetime.datetime.now(datetime.timezone.utc)
+                current_year = current_utc.year
+
+                # If the selected month is January and the current month is December, set the year to next year
+                if time_step.month == 1 and current_utc.month == 12:
+                    corrected_year = current_year + 1
+                else:
+                    corrected_year = current_year  # Otherwise, keep the current year
+
+                # Reconstruct the full datetime with the correct year
+                time_step = time_step.replace(year=corrected_year)
+                time_step = np.datetime64(time_step)  # Convert to NumPy datetime64
+                lead_time = int((time_step - start_time) / np.timedelta64(1, 'h'))
+                step_index = int(lead_time / step_size_hours)
+
+                spatial_interpolator = interp2d(lons, lats, total_selection[step_index], kind='cubic')
+                wind_speeds_at_points = np.array([spatial_interpolator(lon, lat)[0] for lon, lat in zip(filtered_lons, filtered_lats)])
+
+                # scaling
+                scaled_ages_months = scalers[lead_time]["ages"].transform(np.array(filtered_ages).reshape(-1, 1)).flatten()
+                scaled_hub_heights = scalers[lead_time]["hub_heights"].transform(np.array(filtered_hub_heights).reshape(-1, 1)).flatten()
+                scaled_wind_speeds_at_points = scalers[lead_time]["winds"].transform(wind_speeds_at_points.reshape(-1, 1)).flatten()
+
+                turbine_types_onehot = np.zeros((number_wpps, len(known_turbine_types)))
+                for i, turbine_type in enumerate(filtered_turbines):
+                    if turbine_type not in known_turbine_types:
+                        turbine_types_onehot[i] = np.full(len(known_turbine_types), 1.0 / len(known_turbine_types)) # equal mixture of all known turbine types
+                    else:
+                        turbine_types_onehot[i] = encoder.transform(np.array([[turbine_type]])).flatten()
+
+                all_input_features = np.hstack([
+                    turbine_types_onehot,
+                    scaled_hub_heights.reshape(-1, 1),
+                    scaled_ages_months.reshape(-1, 1),
+                    scaled_wind_speeds_at_points.reshape(-1, 1)
+                ])
+
+                input_tensor = torch.tensor(all_input_features, dtype=torch.float32)
+
+                model = models[lead_time]
+                with torch.no_grad():
+                    predictions = np.minimum(model(input_tensor).numpy().flatten() * filtered_capacities, filtered_capacities)
+
+                predictions[(predictions < 0)] = 0
+                
+                # Update marker pop-ups with production values
+                for marker, name, capacity, number_of_turbines, turbine_type, operator, wind_speed, prediction, id, link in zip(marker_cluster.markers, filtered_names, filtered_capacities, filtered_numbers, filtered_turbines, filtered_operators, wind_speeds_at_points, predictions, filtered_ids, filtered_links):
+                    marker.popup.value = \
+                        f"<strong>Project Name:</strong> {name}<br>"\
+                        f"<strong>Capacity:</strong> {capacity} MW<br>"\
+                        f"<strong>Number of Turbines:</strong> {number_of_turbines}<br>"\
+                        f"<strong>Turbine Type:</strong> {turbine_type}<br>"\
+                        f"<strong>Operator:</strong> {operator}<br>"\
+                        f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
+                        f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
+                        f"<strong><a href='{link}' target='_blank' style='color:blue; text-decoration:underline;'>Link to The Wind Power</a></strong><br>"\
+                        f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
+
+                def heatmap_toggle(change):
+
+                    heatmap_toggle_state = heatmap_checkbox.value
+
+                    # Remove existing heatmap layer
+                    for layer in m.layers:
+                        if isinstance(layer, Heatmap):
+                            m.remove(layer)
+
+                    if heatmap_toggle_state:  # Only add heatmap if the checkbox is checked
+                        heatmap_data = [(lat, lon, prod) for lat, lon, prod in zip(filtered_lats, filtered_lons, predictions)]
+                        heatmap = Heatmap(locations=heatmap_data, radius=10, blur=10, max_zoom=10)
+                        m.add(heatmap)
+
+                heatmap_toggle(None)
+                heatmap_checkbox.observe(heatmap_toggle, names='value')
+
+            update_marker_popups(None)
+            slider.observe(update_marker_popups, names='value')
+
+        #update_marker_locations(None)
+        country_dropdown.observe(update_marker_locations, names='value')
+        search_box.observe(update_marker_locations, names='value')
 
         # Add FullScreenControl to map
         m.add(FullScreenControl())
@@ -561,18 +721,23 @@ def server(input, output, session):
         )
         return ui.HTML(summary_html)
     
-    # Dynamically insert/remove the custom text input field
+    # Dynamically insert/remove the additional turbine type input field
     @reactive.effect
     @reactive.event(input.turbine_type)
-    def _():
-        if input.turbine_type() == "custom":
+    def toggle_unknown_turbine():
+        if input.turbine_type() == "unknown for model":
             ui.insert_ui(
-                ui.input_text("custom_turbine", "Enter Custom Turbine Type for Crowdsourcing", value="", placeholder="Type here..."),
-                selector="#custom_turbine_container",
-                multiple=False
+                ui.div(
+                    ui.input_select("unknown_turbine", "Select Turbine Type for Crowdsourcing", 
+                                    choices=unknown_turbine_types, 
+                                    selected=unknown_turbine_types[0]),
+                    id="unknown_turbine_wrapper"  # Wrapper div
+                ),
+                selector="#unknown_turbine_container"
             )
         else:
-            ui.remove_ui("div:has(> #custom_turbine)", multiple=False)  # Remove wrapper div and input
+            ui.remove_ui("#unknown_turbine_wrapper")  # Remove the wrapper div
+
 
     # Plot forecasted production over time
     @render.plot
@@ -596,20 +761,12 @@ def server(input, output, session):
             ax2.set_ylim(y_min / capacity, y_max / capacity)
             ax2.set_ylabel("Capacity Factor")
 
-            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%Y'))
 
             plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right') # Rotate the labels for better fit
 
             ax1.grid(True)
             plt.tight_layout()
-            return fig
-        
-        elif input.turbine_type() == "custom": # Return an empty plot with a message instead of a string
-            fig, ax = plt.subplots(figsize=(8, 4))
-            ax.text(0.5, 0.5, "Individualise a WPP with a custom turbine type and crowdsource data for this configuration.", fontsize=12, ha='center', va='center')
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_frame_on(False)
             return fig
         
         else: # Retrieve inputs
@@ -640,7 +797,7 @@ def server(input, output, session):
                 scaled_age_months = scalers[lead_time]["ages"].transform(np.array([[age_months]]))[0][0]
                 scaled_wind_speed_at_point = scalers[lead_time]["winds"].transform(np.array([[wind_speeds_at_point[-1]]]))[0][0]
 
-                if turbine_type == "unknown":
+                if turbine_type == "unknown for model":
                     num_categories = len(known_turbine_types)
                     one_hot_vector = np.full((1, num_categories), 1 / num_categories) # mixture of all known turbine types
                 else:
@@ -673,8 +830,8 @@ def server(input, output, session):
 
             # Define confidence bounds (95% confidence interval)
             k = 1.96  # For 95% confidence interval
-            upper_bound = np.minimum(predictions_power + k * scaled_stds, np.full(num_steps, capacity).reshape(-1, 1))  # Avoid exceeding capacity
-            lower_bound = np.maximum(predictions_power - k * scaled_stds, 0)  # Ensure no negative values
+            upper_bound = predictions_power + k * scaled_stds
+            lower_bound = predictions_power - k * scaled_stds
 
             # Convert valid_times to pandas DatetimeIndex (assuming it is in UTC)
             valid_times_utc = pd.to_datetime(valid_times, utc=True)
@@ -698,16 +855,16 @@ def server(input, output, session):
 
             # Get interpolated values
             smoothed_predictions = np.maximum(cs(fine_time_grid_local), 0).flatten()
-            smoothed_upper = cs_upper(fine_time_grid_local).flatten()
-            smoothed_lower = cs_lower(fine_time_grid_local).flatten()
+            smoothed_upper = np.minimum(cs_upper(fine_time_grid_local), capacity).flatten()
+            smoothed_lower = np.maximum(cs_lower(fine_time_grid_local), 0).flatten()
 
             # Adjust the current time (from system UTC to user-selected timezone)
-            current_time = pd.Timestamp.now(tz="UTC") + time_shift  # Shift current time
+            current_time_local = pd.Timestamp.now(tz="UTC") + time_shift  # Shift current time
 
             # Update the plot with the new time axis
             ax1.plot(fine_time_grid_local, smoothed_predictions, '-', label="Prediction", color="blue")
             ax1.fill_between(fine_time_grid_local, smoothed_lower, smoothed_upper, color='lightblue', alpha=0.4, label="95% Confidence Interval")
-            ax1.axvline(x=current_time, color='red', linestyle='--', label='Current Time', linewidth=1.5)
+            ax1.axvline(x=current_time_local, color='red', linestyle='--', label='Current Time', linewidth=1.5)
 
             # Plot original and smoothed data
             #ax1.plot(valid_times_local, predictions_power, 'o', label="Original Points", color="red")
@@ -721,7 +878,7 @@ def server(input, output, session):
             ax2.set_ylim(y_min / capacity, y_max / capacity)
             ax2.set_ylabel("Capacity Factor")
 
-            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y/%m/%d'))
+            ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m/%Y'))
 
             # Rotate the labels for better fit
             plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
@@ -818,8 +975,8 @@ def server(input, output, session):
             timezone_offset = int(timezone_str.replace("UTC", "").lstrip("+") or 0)
 
             # Convert user-local timestamps back to UTC
-            time_shift = np.timedelta64(-timezone_offset, 'h')
-            time_series_data["Date"] = time_series_data["Date"] + time_shift
+            time_shift = np.timedelta64(timezone_offset, 'h')
+            time_series_data["Date"] = time_series_data["Date"] - time_shift
 
             # Notify the user that the file is being saved
             ui.notification_show(
@@ -831,7 +988,7 @@ def server(input, output, session):
             metadata = {
                 "Latitude": input.lat(),
                 "Longitude": input.lon(),
-                "Turbine Type": input.custom_turbine() if input.turbine_type() == 'custom' else input.turbine_type(),
+                "Turbine Type": input.unknown_turbine() if input.turbine_type() == 'unknown for model' else input.turbine_type(),
                 "Hub Height": input.hub_height(),
                 "Commissioning Year": input.commissioning_date_year(),
                 "Commissioning Month": input.commissioning_date_month(),
