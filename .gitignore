@@ -1,10 +1,10 @@
-# no spaces, not even in folder name!
+# no spaces, not even in folder name! File / folder to newly be ignored possibly has to be removed from tracked files first
 __pycache__
 data/*
 !data/data_hosting/
 !data/www/
 forecast_fetch
-modelC/reforecast_data
+modelC/metrics_per_attribute/all_values_itemised.pkl
 QGIS_Project
 qgis2web_Test_Project
 wind_energy.html
