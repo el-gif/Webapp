@@ -132,8 +132,7 @@ encoders = joblib.load("modelC/parameters_deployment/encoders.pkl")
 encoder = encoders[0] # encoders are identical for all lead times (checked previously)
 known_turbine_types = encoder.categories_[0]
 selectable_turbine_types = np.concatenate((known_turbine_types, np.array(["unknown for model"])))
-unknown_turbine_types = set([turbine_type for turbine_type in turbine_types if turbine_type not in known_turbine_types])
-unknown_turbine_types.remove('unknown for model')
+unknown_turbine_types = set([turbine_type for turbine_type in turbine_types if turbine_type not in selectable_turbine_types])
 unknown_turbine_types = sorted(list(unknown_turbine_types))
 
 scalers = joblib.load("modelC/parameters_deployment/scalers.pkl")
@@ -195,10 +194,10 @@ app_ui = ui.page_navbar(
         ui.HTML(documentation_html)
     ),
     ui.nav_panel(
-        "Timezone Settings",
+        "Time Zone Settings",
         ui.input_select(
             "selected_timezone",  # Unique ID for global timezone selector
-            "Select Timezone",
+            "Select Time Zone",
             choices=timezone_list,
             selected="UTC"
         )
@@ -214,7 +213,7 @@ app_ui = ui.page_navbar(
                 link.click();
                 document.body.removeChild(link);
             });
-        """)
+        """),
     ),
     id="navbar_selected",
     title="Wind Power Forecast"
@@ -406,8 +405,8 @@ def server(input, output, session):
         # Slider for time steps
         play = Play(min=0, max=total_hours, step=1, value=0, interval=500, description='Time Step')
         valid_times_dt = pd.to_datetime(valid_times_local)
-        formatted_times = [t.strftime('%H:%M %d/%m') for t in valid_times_dt] # known bug: SelectionSlider gives too little place for values --> year can't be displayed
-        slider = SelectionSlider(options=formatted_times, value=formatted_times[0], description='Time', layout=Layout(width="300px"))
+        formatted_times = [t.strftime('%d/%m %H:%M') for t in valid_times_dt] # known bug: SelectionSlider gives too little place for values --> year can't be displayed
+        slider = SelectionSlider(options=formatted_times, value=formatted_times[0], description='Time')
         jslink((play, 'value'), (slider, 'index'))
         slider_box = HBox([play, slider], layout=Layout(object_position="center", margin="0px 0px 0px 95px"))
 
@@ -486,7 +485,7 @@ def server(input, output, session):
             def update_marker_popups(change):
 
                 # Convert the selected slider value (HH:MM dd/mm) back to datetime
-                time_step_local = pd.to_datetime(slider.value, format='%H:%M %d/%m')  # Convert to datetime
+                time_step_local = pd.to_datetime(slider.value, format='%d/%m %H:%M')  # Convert to datetime
 
                 # convert to UTC
                 time_step = time_step_local - time_shift

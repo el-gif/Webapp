@@ -1,63 +1,195 @@
-<p>This web application visualises wind power production forecasts for wind power plants across Europe.</p>
-<h4>Key Features</h4>
-<ul>
-    <li>Interactive map with wind power plant information and predictions.</li>
-    <li>Customizable input fields to select turbine attributes and display predictions.</li>
-    <li>Time in Central European Time (CET/UTC+1), important when contributing data.</li>
-    <li>Built using Python, Shiny, and Jupyter notebooks for seamless functionality.</li>
-</ul>
-<h4>Model Details</h4>
-<ul>
-    <li>Trained on a dataset of European wind power plants and ECMWF weather data.</li>
-    <li>Input features: Turbine Type, Hub Height, Capacity, Age, Wind Speed.</li>
-    <li>ML Model: Multi-Layer Perceptron (MLP) with four hidden layers and ReLU activation functions.</li>
-    <li>Missing Hub Height: Mean value from the database is used as default.</li>
-    <li>Missing Commissioning Date: Default set to June 2010 if missing.</li>
-    <li>Unknown Turbine Type: Auto-selects 'nan' if the type is not in the database.</li>
-</ul>
-<h4>Contribution Guidelines</h4>
-<p>Please contribute your data to help improve the model. Consider the following:</p>
-<ul>
-    <li>Ensure data is provided in kW for production values (see example file).</li>
-    <li>Consider the time zone (CET/UTC+1) when submitting data.</li>
-    <li>Extreme input values may lead to less accurate predictions due to limited training.</li>
-</ul>
-<h4>Motivation for Contribution</h4>
-<ul>
-    <li>Helps improve the wind power forecast (WPF) model.</li>
-    <li>Facilitates wind power plant integration into the electricity grid.</li>
-    <li>Supports the reduction of dependency on fossil fuels.</li>
-    <li>Participation could be a Corporate Social Responsibility (CSR) initiative for sustainability.</li>
-</ul>
-<h4>Data Security and Privacy</h4>
-<ul>
-    <li>All uploads are encrypted (HTTPS).</li>
-    <li>Data is stored securely until the next training cycle.</li>
-    <li>Data is destroyed after training.</li>
-    <li>Your data remain anonymous.</li>
-</ul>
-<h4>Transparency</h4>
-<p>Transparency is provided regarding how crowdsourced data is used to improve the model.</p>
-<h4>Similar Initiatives</h4>
-<ul>
-    <li>OpenStreetMap</li>
-    <li>GitHub</li>
-    <li>Kaggle</li>
-    <li>Wikipedia</li>
-</ul>
-<h4>Legal Notice</h4>
-<p>
-    This web application has been developed by <strong>Alexander Peters</strong>, 
-    from the <strong>Dyson School of Design Engineering</strong> at <strong>Imperial College London</strong>. 
-</p>
-<p>
-    The content and forecasts displayed are for informational purposes only. While the utmost care has been taken to ensure the accuracy of the data, 
-    Alexander Peters and Imperial College London do not accept any responsibility for losses or damages arising from its use. 
-</p>
-<p>
-    If you have any questions, concerns, or feedback, please contact 
-    <a href="mailto:a.peters24@imperial.ac.uk">a.peters24@imperial.ac.uk</a>.
-</p>
-<p>
-    All contributions remain anonymous and secure, and uploaded data will be used solely for model improvement as detailed in the privacy section.
-</p>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wind Power Forecast</title>
+    <style>
+        /* General Reset */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+
+        /* Header */
+        header {
+            background: #004080;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            font-size: 1.8rem;
+            font-weight: bold;
+        }
+
+        /* Three-column layout */
+        .container {
+            display: flex;
+            justify-content: space-between;
+            max-width: 1400px;
+            margin: 20px auto;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .column {
+            flex: 1;
+            padding: 20px;
+            background: white;
+            border-radius: 12px; /* Rounded corners */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* Shadow for a sleek card effect */
+        }
+
+        /* Section headers */
+        h4 {
+            color: #004080;
+            border-bottom: 2px solid #004080;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+        }
+
+        /* List styling */
+        ul {
+            display: inline;
+            padding: 0;
+            margin: 0;
+        }
+
+        ul li {
+            display: inline;  /* Forces the list items to behave inline */
+            margin-right: 10px; /* Optional spacing between list items */
+            padding: 8px 0;
+            display: flex;
+            align-items: center;
+        }
+
+        ul li::before {
+            content: "⚡";
+            margin-right: 10px;
+            color: #004080;
+        }
+
+        /* Links inside lists */
+        a {
+            display: inline;
+            color: #004080;
+            text-decoration: none;
+            font-weight: bold;
+            margin-left: 5px;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 20px;
+            background: #004080;
+            color: white;
+            margin-top: 20px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .container {
+                flex-direction: column;
+                align-items: center;
+            }
+            .column {
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header>Wind Power Production Forecast</header>
+
+<div class="container">
+    
+    <!-- Left Column: Features & Technical Details -->
+    <div class="column">
+        <h4>Key Features</h4>
+        <ul>
+            <li>Interactive map with production forecasts for wind power plants of a country</li>
+            <li>Diagram with production forecast for individual wind power plants</li>
+            <li>Customisable wind power plant attributes</li>
+            <li>Crowdsourcing functionality to improve the model</li>
+        </ul>
+
+        <h4>Technical Model Details</h4>
+        <ul>
+            
+            <li>One Multi-Layer Perceptron (MLP) per lead time for all wind power plants (unified model)</li>
+            <li>Trained on European wind power plant production data from <a href="https://transparency.entsoe.eu/" target="_blank">ENTSO-E Transparency Platform</a></li>
+            <li>ReLU activation function and four hidden layers</li>
+            <li>Input features: Turbine Type, Hub Height, Age, Wind Speed</li>
+        </ul>
+
+        <h4>Usage</h4>
+        <ul>
+            <li>Extreme values in features and long forecasting times reduce accuracy</li>
+            <li>Please allow for some charging time when selecting a country with many wind power plants. For this reasons, it is not recommended to select all wind power plants at once.</li>
+            <li>Missing Hub Height (26 % of displayed wind power plants): Mean value from database is used as default</li>
+            <li>Missing Commissioning Date (6 %): June 2010 is used as default</li>
+            <li>Unknown Turbine Type (16 %): Equal mixture of all known turbine types</li>
+        </ul>
+    </div>
+
+    <!-- Middle Column: Crowdsourcing & Contributions -->
+    <div class="column">
+        <h4>Motivation for Contribution</h4>
+        <ul>
+            <li>Improves the forecasting model by allowing it to learn new values and turbine types</li>
+            <li>Allows this web application to remain free to use</li>
+            <li>Facilitates access to wind power forecasts and grid integration</li>
+            <li>Supports sustainability as a Corporate Social Responsibility (CSR) initiative</li>
+        </ul>
+
+        <h4>Contribution Guidelines</h4>
+        <ul>
+            <li>Submit production values in kW (<a href="#" onclick="Shiny.setInputValue('download_example', Math.random()); return false;">Download Example File</a>)</li>
+            <li>Set correct wind power plant configuration and time zone</li>
+            <li>Check the displayed production diagram before contributing</li>
+        </ul>
+
+        <h4>Data Sources</h4>
+        <ul>
+            <li>Wind Power Plant Metadata: <a href="https://www.thewindpower.net/index_de.php" target="_blank">The Wind Power</a></li>
+            <li>Wind Power Plant Production Data: <a href="https://transparency.entsoe.eu/" target="_blank">ENTSO-E Transparency Platform</a></li>
+            <li>Weather Data: <a href="https://www.ecmwf.int/" target="_blank">ECMWF</a></li>
+        </ul>
+    </div>
+
+    <!-- Right Column: Privacy & Legal Notice -->
+    <div class="column">
+        <h4>Data Security & Privacy</h4>
+        <ul>
+            <li>All uploads are encrypted (HTTPS)</li>
+            <li>Data are stored securely on a Microsoft Azure server in the UK and not shared with third parties</li>
+            <li>Data are stored permanently in the aim to build a valuable database with European wind power production data</li>
+            <li>If you want to retract contributed data, please send an email to <a href="mailto:a.peters24@imperial.ac.uk">a.peters24@imperial.ac.uk</a></li>
+            <li>Contributions remain anonymous</li>
+        </ul>
+
+        <h4>Legal Notice</h4>
+        <p>
+            This web application was developed by <strong>Alexander Peters</strong> at
+            <strong>Imperial College London</strong> and <strong>RWTH Aachen University</strong>.
+        </p>
+        <p>
+            The content and forecasts displayed are for informational purposes only. No responsibility for losses or damages arising from its use is assumed.
+        </p>
+        <p>
+            For questions, concerns, or feedback, please contact <a href="mailto:a.peters24@imperial.ac.uk">a.peters24@imperial.ac.uk</a>.
+        </p>
+    </div>
+</div>
+
+<footer>
+    © 2025 Wind Power Forecast | Developed by Alexander Peters
+</footer>
+
+</body>
+</html>
+
+
