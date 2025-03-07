@@ -88,6 +88,26 @@
             margin-top: 20px;
         }
 
+        .styled-table {
+            width: 100%;
+            border-collapse: collapse; /* Ensures single-line borders */
+            margin-top: 10px;
+            font-size: 1em;
+            font-family: Arial, sans-serif;
+        }
+
+        .styled-table th, .styled-table td {
+            border: 1px solid #004080; /* Single solid border */
+            padding: 10px;
+            text-align: center;
+        }
+
+        .styled-table th {
+            background-color: #004080;
+            color: white;
+            font-weight: bold;
+        }
+
         /* Responsive */
         @media (max-width: 1024px) {
             .container {
@@ -106,7 +126,6 @@
 
 <div class="container">
     
-    <!-- Left Column: Features & Technical Details -->
     <div class="column">
         <h4>Key Features</h4>
         <ul>
@@ -123,20 +142,19 @@
             <li>Trained on European wind power plant production data from <a href="https://transparency.entsoe.eu/" target="_blank">ENTSO-E Transparency Platform</a></li>
             <li>ReLU activation function and four hidden layers</li>
             <li>Input features: Turbine Type, Hub Height, Age, Wind Speed</li>
+            <li>The model is deterministic, not probabilistic. The given 95 % confidence interval uses a global standard deviation over all configurations per lead time</li>
+            <li>Model predicts normalised wind powers, which are then scaled with the capacity values. Opposite test results refer to these normalised values.</li>
         </ul>
 
         <h4>Usage</h4>
         <ul>
-            <li>Extreme values in features and long forecasting times reduce accuracy</li>
+            <li>Extreme values in features and long forecasting times reduce accuracy. Only the latter is accounted for by the standard deviation.</li>
             <li>Please allow for some charging time when selecting a country with many wind power plants. For this reasons, it is not recommended to select all wind power plants at once.</li>
             <li>Missing Hub Height (26 % of displayed wind power plants): Mean value from database is used as default</li>
             <li>Missing Commissioning Date (6 %): June 2010 is used as default</li>
             <li>Unknown Turbine Type (16 %): Equal mixture of all known turbine types</li>
         </ul>
-    </div>
 
-    <!-- Middle Column: Crowdsourcing & Contributions -->
-    <div class="column">
         <h4>Motivation for Contribution</h4>
         <ul>
             <li>Improves the forecasting model by allowing it to learn new values and turbine types</li>
@@ -158,16 +176,13 @@
             <li>Wind Power Plant Production Data: <a href="https://transparency.entsoe.eu/" target="_blank">ENTSO-E Transparency Platform</a></li>
             <li>Weather Data: <a href="https://www.ecmwf.int/" target="_blank">ECMWF</a></li>
         </ul>
-    </div>
 
-    <!-- Right Column: Privacy & Legal Notice -->
-    <div class="column">
         <h4>Data Security & Privacy</h4>
         <ul>
             <li>All uploads are encrypted (HTTPS)</li>
             <li>Data are stored securely on a Microsoft Azure server in the UK and not shared with third parties</li>
             <li>Data are stored permanently in the aim to build a valuable database with European wind power production data</li>
-            <li>If you want to retract contributed data, please send an email to <a href="mailto:a.peters24@imperial.ac.uk">a.peters24@imperial.ac.uk</a></li>
+            <li>If you want to retract contributed data, please send an email to the email address below</li>
             <li>Contributions remain anonymous</li>
         </ul>
 
@@ -183,6 +198,369 @@
             For questions, concerns, or feedback, please contact <a href="mailto:a.peters24@imperial.ac.uk">a.peters24@imperial.ac.uk</a>.
         </p>
     </div>
+
+    <!-- Test Results Section -->
+    <div class="column">
+        <h4>Model Test Results</h4>
+        <table border="1" class="dataframe styled-table">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Lead Time</th>
+      <th>Huber</th>
+      <th>MAE</th>
+      <th>MSE</th>
+      <th>RMSE</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>0.014760</td>
+      <td>0.118425</td>
+      <td>0.029519</td>
+      <td>0.171812</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>0.015321</td>
+      <td>0.120778</td>
+      <td>0.030652</td>
+      <td>0.175078</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>0.014424</td>
+      <td>0.117802</td>
+      <td>0.028848</td>
+      <td>0.169848</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>0.014559</td>
+      <td>0.118628</td>
+      <td>0.029119</td>
+      <td>0.170643</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>0.015325</td>
+      <td>0.121273</td>
+      <td>0.030650</td>
+      <td>0.175072</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>0.016178</td>
+      <td>0.125622</td>
+      <td>0.032363</td>
+      <td>0.179897</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>0.015578</td>
+      <td>0.124113</td>
+      <td>0.031156</td>
+      <td>0.176510</td>
+    </tr>
+    <tr>
+      <td>21</td>
+      <td>0.015612</td>
+      <td>0.123889</td>
+      <td>0.031225</td>
+      <td>0.176707</td>
+    </tr>
+    <tr>
+      <td>24</td>
+      <td>0.016360</td>
+      <td>0.126647</td>
+      <td>0.032721</td>
+      <td>0.180889</td>
+    </tr>
+    <tr>
+      <td>27</td>
+      <td>0.017199</td>
+      <td>0.130842</td>
+      <td>0.034410</td>
+      <td>0.185500</td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td>0.016690</td>
+      <td>0.129421</td>
+      <td>0.033380</td>
+      <td>0.182703</td>
+    </tr>
+    <tr>
+      <td>33</td>
+      <td>0.016514</td>
+      <td>0.128883</td>
+      <td>0.033028</td>
+      <td>0.181735</td>
+    </tr>
+    <tr>
+      <td>36</td>
+      <td>0.017870</td>
+      <td>0.134037</td>
+      <td>0.035740</td>
+      <td>0.189051</td>
+    </tr>
+    <tr>
+      <td>39</td>
+      <td>0.018630</td>
+      <td>0.138081</td>
+      <td>0.037274</td>
+      <td>0.193064</td>
+    </tr>
+    <tr>
+      <td>42</td>
+      <td>0.018375</td>
+      <td>0.137211</td>
+      <td>0.036750</td>
+      <td>0.191703</td>
+    </tr>
+    <tr>
+      <td>45</td>
+      <td>0.018390</td>
+      <td>0.137886</td>
+      <td>0.036779</td>
+      <td>0.191779</td>
+    </tr>
+    <tr>
+      <td>48</td>
+      <td>0.019119</td>
+      <td>0.140323</td>
+      <td>0.038237</td>
+      <td>0.195544</td>
+    </tr>
+    <tr>
+      <td>51</td>
+      <td>0.020311</td>
+      <td>0.146229</td>
+      <td>0.040639</td>
+      <td>0.201591</td>
+    </tr>
+    <tr>
+      <td>54</td>
+      <td>0.019812</td>
+      <td>0.143980</td>
+      <td>0.039624</td>
+      <td>0.199058</td>
+    </tr>
+    <tr>
+      <td>57</td>
+      <td>0.020298</td>
+      <td>0.146772</td>
+      <td>0.040596</td>
+      <td>0.201485</td>
+    </tr>
+    <tr>
+      <td>60</td>
+      <td>0.021367</td>
+      <td>0.149863</td>
+      <td>0.042735</td>
+      <td>0.206724</td>
+    </tr>
+    <tr>
+      <td>63</td>
+      <td>0.022399</td>
+      <td>0.155440</td>
+      <td>0.044807</td>
+      <td>0.211676</td>
+    </tr>
+    <tr>
+      <td>66</td>
+      <td>0.021877</td>
+      <td>0.153815</td>
+      <td>0.043753</td>
+      <td>0.209173</td>
+    </tr>
+    <tr>
+      <td>69</td>
+      <td>0.022930</td>
+      <td>0.157758</td>
+      <td>0.045859</td>
+      <td>0.214148</td>
+    </tr>
+    <tr>
+      <td>72</td>
+      <td>0.024071</td>
+      <td>0.162488</td>
+      <td>0.048142</td>
+      <td>0.219414</td>
+    </tr>
+    <tr>
+      <td>75</td>
+      <td>0.024890</td>
+      <td>0.166915</td>
+      <td>0.049796</td>
+      <td>0.223150</td>
+    </tr>
+    <tr>
+      <td>78</td>
+      <td>0.024862</td>
+      <td>0.167042</td>
+      <td>0.049724</td>
+      <td>0.222989</td>
+    </tr>
+    <tr>
+      <td>81</td>
+      <td>0.025761</td>
+      <td>0.170264</td>
+      <td>0.051522</td>
+      <td>0.226985</td>
+    </tr>
+    <tr>
+      <td>84</td>
+      <td>0.026621</td>
+      <td>0.173444</td>
+      <td>0.053242</td>
+      <td>0.230743</td>
+    </tr>
+    <tr>
+      <td>87</td>
+      <td>0.027207</td>
+      <td>0.176632</td>
+      <td>0.054429</td>
+      <td>0.233301</td>
+    </tr>
+    <tr>
+      <td>90</td>
+      <td>0.026752</td>
+      <td>0.175646</td>
+      <td>0.053505</td>
+      <td>0.231311</td>
+    </tr>
+    <tr>
+      <td>93</td>
+      <td>0.027947</td>
+      <td>0.179845</td>
+      <td>0.055894</td>
+      <td>0.236419</td>
+    </tr>
+    <tr>
+      <td>96</td>
+      <td>0.028388</td>
+      <td>0.180967</td>
+      <td>0.056776</td>
+      <td>0.238277</td>
+    </tr>
+    <tr>
+      <td>99</td>
+      <td>0.028548</td>
+      <td>0.183038</td>
+      <td>0.057118</td>
+      <td>0.238993</td>
+    </tr>
+    <tr>
+      <td>102</td>
+      <td>0.028694</td>
+      <td>0.184051</td>
+      <td>0.057387</td>
+      <td>0.239557</td>
+    </tr>
+    <tr>
+      <td>105</td>
+      <td>0.029790</td>
+      <td>0.187942</td>
+      <td>0.059580</td>
+      <td>0.244090</td>
+    </tr>
+    <tr>
+      <td>108</td>
+      <td>0.030629</td>
+      <td>0.190844</td>
+      <td>0.061259</td>
+      <td>0.247506</td>
+    </tr>
+    <tr>
+      <td>111</td>
+      <td>0.031033</td>
+      <td>0.193274</td>
+      <td>0.062081</td>
+      <td>0.249161</td>
+    </tr>
+    <tr>
+      <td>114</td>
+      <td>0.031395</td>
+      <td>0.194833</td>
+      <td>0.062790</td>
+      <td>0.250580</td>
+    </tr>
+    <tr>
+      <td>117</td>
+      <td>0.032431</td>
+      <td>0.198331</td>
+      <td>0.064862</td>
+      <td>0.254680</td>
+    </tr>
+    <tr>
+      <td>120</td>
+      <td>0.034645</td>
+      <td>0.206866</td>
+      <td>0.069289</td>
+      <td>0.263228</td>
+    </tr>
+    <tr>
+      <td>123</td>
+      <td>0.035897</td>
+      <td>0.212407</td>
+      <td>0.071804</td>
+      <td>0.267963</td>
+    </tr>
+    <tr>
+      <td>126</td>
+      <td>0.035306</td>
+      <td>0.210465</td>
+      <td>0.070612</td>
+      <td>0.265729</td>
+    </tr>
+    <tr>
+      <td>129</td>
+      <td>0.035991</td>
+      <td>0.212679</td>
+      <td>0.071983</td>
+      <td>0.268296</td>
+    </tr>
+    <tr>
+      <td>132</td>
+      <td>0.036855</td>
+      <td>0.215583</td>
+      <td>0.073710</td>
+      <td>0.271496</td>
+    </tr>
+    <tr>
+      <td>135</td>
+      <td>0.037576</td>
+      <td>0.218572</td>
+      <td>0.075167</td>
+      <td>0.274167</td>
+    </tr>
+    <tr>
+      <td>138</td>
+      <td>0.036955</td>
+      <td>0.216483</td>
+      <td>0.073911</td>
+      <td>0.271865</td>
+    </tr>
+    <tr>
+      <td>141</td>
+      <td>0.037840</td>
+      <td>0.220521</td>
+      <td>0.075679</td>
+      <td>0.275099</td>
+    </tr>
+    <tr>
+      <td>144</td>
+      <td>0.038554</td>
+      <td>0.223727</td>
+      <td>0.077107</td>
+      <td>0.277682</td>
+    </tr>
+  </tbody>
+</table>
+    </div>
+
+
 </div>
 
 <footer>

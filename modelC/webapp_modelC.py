@@ -23,6 +23,7 @@ import datetime
 import matplotlib.dates as mdates
 
 
+
 ##### Do once when programme is executed #####
 
 # Limit to Europe
@@ -74,7 +75,7 @@ country_centers = {
 
 # Filter data for Europe and extract relevant columns
 df = pd.read_parquet("data/data_hosting/The_Wind_Power.parquet") # 0.7 seconds when WPPs already regionally filtered and stored as parquet file. As unfiltered excel file it takes 11 seconds
-#df = df.iloc[::100] # only every 10oth wpp
+#df = df.iloc[::100] # only every 100th wpp
 ids = df['ID'].values
 countries = df['Country'].values
 project_names = df['Name'].values
@@ -124,9 +125,6 @@ class MLP(nn.Module):
         x = self.dropout(x)
         x = self.fc4(x)
         return x
-
-# Load elements
-metrics = joblib.load("modelC/metrics_per_attribute/metrics.pkl")
 
 encoders = joblib.load("modelC/parameters_deployment/encoders.pkl")
 encoder = encoders[0] # encoders are identical for all lead times (checked previously)
@@ -362,6 +360,8 @@ def server(input, output, session):
     @render_widget
     def map():
 
+        marker_cluster_storage = {"marker_cluster": None}
+
         # Get the user-selected timezone directly
         timezone_str = input.selected_timezone()
         timezone_offset = int(timezone_str.replace("UTC", "").lstrip("+") or 0)
@@ -402,6 +402,13 @@ def server(input, output, session):
             layout=Layout(object_position="left")
         )
 
+        # Checkbox for toggling the WPP markers
+        marker_checkbox = Checkbox(
+            value=True,  # Default: Heatmap is visible
+            description="Show Wind Power Plants",
+            layout=Layout(object_position="left")
+        )
+
         # Slider for time steps
         play = Play(min=0, max=total_hours, step=1, value=0, interval=500, description='Time Step')
         valid_times_dt = pd.to_datetime(valid_times_local)
@@ -412,7 +419,8 @@ def server(input, output, session):
 
         # Organize widgets horizontally
         filter_controls = HBox([country_dropdown, search_box], layout=Layout(margin="5px"))
-        all_controls = VBox([filter_controls, slider_box, heatmap_checkbox])
+        checkbox_controls = HBox([heatmap_checkbox, marker_checkbox], layout=Layout(margin="5px"))
+        all_controls = VBox([filter_controls, slider_box, checkbox_controls])
         
         m.add(WidgetControl(widget=all_controls, position='topright'))
 
@@ -474,12 +482,25 @@ def server(input, output, session):
                 )
                 markers.append(marker)
 
-            # Remove existing marker cluster and add new one
-            for layer in m.layers:
-                if isinstance(layer, MarkerCluster):
-                    m.remove(layer)
-            marker_cluster = MarkerCluster(markers=markers)
-            m.add(marker_cluster)
+            def marker_toggle(change):
+
+                marker_toggle_status = marker_checkbox.value
+
+                # Remove existing marker cluster layer
+                for layer in m.layers:
+                    if isinstance(layer, MarkerCluster):
+                        m.remove(layer)
+                        marker_cluster_storage["marker_cluster"] = None
+
+                if marker_toggle_status: # Only add marker cluster if the checkbox is checked
+                    marker_cluster = MarkerCluster(markers=markers)
+                    marker_cluster_storage["marker_cluster"] = marker_cluster
+                    m.add(marker_cluster)
+
+            marker_toggle(None)
+            marker_checkbox.observe(marker_toggle, names='value')
+
+            marker_cluster = marker_cluster_storage["marker_cluster"]
 
             # Update marker popups based with forecast values based on slider value
             def update_marker_popups(change):
@@ -506,7 +527,6 @@ def server(input, output, session):
                 time_step = np.datetime64(time_step)  # Convert to NumPy datetime64
                 lead_time = int((time_step - start_time) / np.timedelta64(1, 'h'))
                 step_index = int(lead_time / step_size_hours)
-
                 spatial_interpolator = interp2d(lons, lats, total_selection[step_index], kind='cubic')
                 wind_speeds_at_points = np.array([spatial_interpolator(lon, lat)[0] for lon, lat in zip(filtered_lons, filtered_lats)])
 
@@ -536,19 +556,21 @@ def server(input, output, session):
                     predictions = np.minimum(model(input_tensor).numpy().flatten() * filtered_capacities, filtered_capacities)
 
                 predictions[(predictions < 0)] = 0
+
+                if marker_cluster is not None:
                 
-                # Update marker pop-ups with production values
-                for marker, name, capacity, number_of_turbines, turbine_type, operator, wind_speed, prediction, id, link in zip(marker_cluster.markers, filtered_names, filtered_capacities, filtered_numbers, filtered_turbines, filtered_operators, wind_speeds_at_points, predictions, filtered_ids, filtered_links):
-                    marker.popup.value = \
-                        f"<strong>Project Name:</strong> {name}<br>"\
-                        f"<strong>Capacity:</strong> {capacity} MW<br>"\
-                        f"<strong>Number of Turbines:</strong> {number_of_turbines}<br>"\
-                        f"<strong>Turbine Type:</strong> {turbine_type}<br>"\
-                        f"<strong>Operator:</strong> {operator}<br>"\
-                        f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
-                        f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
-                        f"<strong><a href='{link}' target='_blank' style='color:blue; text-decoration:underline;'>Link to The Wind Power</a></strong><br>"\
-                        f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
+                    # Update marker pop-ups with production values
+                    for marker, name, capacity, number_of_turbines, turbine_type, operator, wind_speed, prediction, id, link in zip(marker_cluster.markers, filtered_names, filtered_capacities, filtered_numbers, filtered_turbines, filtered_operators, wind_speeds_at_points, predictions, filtered_ids, filtered_links):
+                        marker.popup.value = \
+                            f"<strong>Project Name:</strong> {name}<br>"\
+                            f"<strong>Capacity:</strong> {capacity} MW<br>"\
+                            f"<strong>Number of Turbines:</strong> {number_of_turbines}<br>"\
+                            f"<strong>Turbine Type:</strong> {turbine_type}<br>"\
+                            f"<strong>Operator:</strong> {operator}<br>"\
+                            f"<strong>Wind speed forecast:</strong> {wind_speed:.2f} m/s<br>"\
+                            f"<strong>Production forecast:</strong> {prediction:.2f} MW<br>"\
+                            f"<strong><a href='{link}' target='_blank' style='color:blue; text-decoration:underline;'>Link to The Wind Power</a></strong><br>"\
+                            f"<button onclick=\"Shiny.setInputValue('entire_forecast', {{id: {id}, timestamp: Date.now()}})\">Entire Forecast</button>" # timestamp to always have a slightly different button value to ensure that each and every click on the "entire forecast" button triggers the event, even click on same button twice
 
                 def heatmap_toggle(change):
 
@@ -782,7 +804,6 @@ def server(input, output, session):
             # Calculate forecasted productions
             predictions_power = []
             wind_speeds_at_point = []
-            stds = []
             num_steps = len(valid_times)
             for step_index in range(num_steps):
                 lead_time = step_index * step_size_hours
@@ -816,21 +837,10 @@ def server(input, output, session):
 
                 predictions_power.append(predictions_cap_factor * capacity)
 
-                stds.append(metrics[lead_time]["detailed"]["STD_1"])
-
-            stds = np.array(stds)
-            scaled_stds = stds * capacity  # Convert to MW
-
             predictions_power = np.array([p.item() for p in predictions_power]).reshape(-1, 1)  # Shape (49, 1)
-            scaled_stds = scaled_stds.reshape(-1, 1)  # Ensure the same shape (49, 1)
 
             # Store the forecast data in the reactive `forecast_data`
             forecast_data.set({"wind_speeds": wind_speeds_at_point, "productions": predictions_power})
-
-            # Define confidence bounds (95% confidence interval)
-            k = 1.96  # For 95% confidence interval
-            upper_bound = predictions_power + k * scaled_stds
-            lower_bound = predictions_power - k * scaled_stds
 
             # Convert valid_times to pandas DatetimeIndex (assuming it is in UTC)
             valid_times_utc = pd.to_datetime(valid_times, utc=True)
@@ -849,20 +859,15 @@ def server(input, output, session):
 
             # Use numeric values in CubicSpline
             cs = CubicSpline(valid_times_local, predictions_power)
-            cs_upper = CubicSpline(valid_times_local, upper_bound)
-            cs_lower = CubicSpline(valid_times_local, lower_bound)
 
             # Get interpolated values
             smoothed_predictions = np.maximum(cs(fine_time_grid_local), 0).flatten()
-            smoothed_upper = np.minimum(cs_upper(fine_time_grid_local), capacity).flatten()
-            smoothed_lower = np.maximum(cs_lower(fine_time_grid_local), 0).flatten()
 
             # Adjust the current time (from system UTC to user-selected timezone)
             current_time_local = pd.Timestamp.now(tz="UTC") + time_shift  # Shift current time
 
             # Update the plot with the new time axis
             ax1.plot(fine_time_grid_local, smoothed_predictions, '-', label="Prediction", color="blue")
-            ax1.fill_between(fine_time_grid_local, smoothed_lower, smoothed_upper, color='lightblue', alpha=0.4, label="95% Confidence Interval")
             ax1.axvline(x=current_time_local, color='red', linestyle='--', label='Current Time', linewidth=1.5)
 
             # Plot original and smoothed data
@@ -870,7 +875,7 @@ def server(input, output, session):
             ax1.set_xlabel("Date")
             ax1.set_ylabel("Production (MW)")
             ax1.set_ylim(bottom=0)
-            ax1.set_title("Forecasted Production with 95 % Confidence Interval")
+            ax1.set_title("Forecasted Production")
 
             ax2 = ax1.twinx()
             y_min, y_max = ax1.get_ylim()
